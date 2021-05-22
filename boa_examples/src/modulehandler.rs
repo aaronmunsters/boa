@@ -1,10 +1,11 @@
-//! This example shows you how to implement your own functions, for example a module handler which allows you to load other JavaScript files.
-
 use std::fs::read_to_string;
 
-use boa::{property::Attribute, Context, JsResult, JsValue};
+use boa::{
+    builtins::function::Function, builtins::value::ResultValue, builtins::value::Value,
+    exec::Interpreter, forward, realm::Realm,
+};
 
-pub fn main() {
+pub fn run() {
     let js_file_path = "./scripts/calctest.js";
     let buffer = read_to_string(js_file_path);
 
