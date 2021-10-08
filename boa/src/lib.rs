@@ -73,6 +73,7 @@ pub mod class;
 pub mod context;
 pub mod environment;
 pub mod gc;
+pub mod jsstring;
 pub mod object;
 pub mod profiler;
 pub mod property;
