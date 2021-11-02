@@ -1,22 +1,17 @@
-mod loadstring;
-mod loadfile;
-mod returnval;
 mod enhancedglobal;
+mod loadfile;
+mod loadstring;
 mod modulehandler;
 
 fn main() {
     println!("\r\n");
-    
+
     //example that loads, parses and executs a JS code string
     loadstring::run();
     println!("\r\n");
 
     //example that loads, parses and executs JS code from a source file (./scripts/helloworld.js)
     loadfile::run();
-    println!("\r\n");
-
-    //example that loads, parses and executs JS code and uses the return value
-    returnval::run();
     println!("\r\n");
 
     //example that enhances the global object with custom values, objects, functions

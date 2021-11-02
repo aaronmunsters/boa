@@ -1,4 +1,3 @@
-//! This example shows how to add global values into the context before executing.
 //! There are APIs for adding in global properties, (which will be on window), plus APIs for adding closures
 
 use boa::{property::Attribute, Context};

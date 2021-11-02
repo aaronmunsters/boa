@@ -1,9 +1,6 @@
 use std::fs::read_to_string;
 
-use boa::{
-    builtins::function::Function, builtins::value::ResultValue, builtins::value::Value,
-    exec::Interpreter, forward, realm::Realm,
-};
+use boa::{property::Attribute, Context, JsResult, JsValue};
 
 pub fn run() {
     let js_file_path = "./scripts/calctest.js";
