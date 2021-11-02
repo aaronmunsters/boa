@@ -1,59 +1,45 @@
-use std::{fs::read_to_string};
+use boa::{property::Attribute, Context};
+use std::fs::read_to_string;
 
-use boa::{
-    exec::Interpreter,
-    forward,
-    realm::Realm,
-    builtins::value::Value,
-    builtins::value::ResultValue,
-    builtins::function::Function
-};
-
-pub fn run(){
+pub fn run() {
     let js_file_path = "./scripts/enhancedglobal.js";
     let buffer = read_to_string(js_file_path);
 
-    if buffer.is_err(){
+    if buffer.is_err() {
         println!("Error: {}", buffer.unwrap_err());
         return;
     }
 
-    //Creating the execution context
-    let ctx = Realm::create();
+    // We need to create a Javascript context.
+    let mut ctx = Context::new();
 
-    //Adding a custom global variable
-    ctx.global_obj.set_field("customstring", "Hello! I am a custom global variable");
+    // We can register a global property
+    ctx.register_global_property(
+        "customstring",
+        "Hello! I am a custom global variable",
+        Attribute::all(),
+    );
 
-    //Adding a custom global function
-    let rfn = Function::builtin(Vec::new(), rusty_hello);
-    ctx.global_obj.set_field("rusty_hello", Value::from_func(rfn));
+    ctx.register_global_closure("rusty_hello", 0, |_, args, _| {
+        let arg = args.get(0).unwrap();
+        let val = format!(
+            "Hello from Rust! You passed {}",
+            arg.as_string().unwrap().as_str()
+        );
 
-    //Adding s custom object
-    let gobj = Value::new_object(Some(&ctx.global_obj));
-    let addfn = Function::builtin(Vec::new(), add);
-    gobj.set_field("add", Value::from_func(addfn));
-    ctx.global_obj.set_field("rusty_obj", gobj);
+        Ok(val.into())
+    });
 
-    //Instantiating the engien with the execution context
-    let mut engine = Interpreter::new(ctx);
+    ctx.register_global_closure("add", 0, |_, args, _| {
+        let arg = args.get(0).unwrap();
+        let val = format!(
+            "Hello from Rust! You passed {}",
+            arg.as_string().unwrap().as_str()
+        );
+
+        Ok(val.into())
+    });
 
     //Loading, parsing and executing the JS code from the source file
-    let error_string = forward(&mut engine, &buffer.unwrap());
-    if error_string != "undefined"{
-        println!("Error parsing script: {}", error_string);
-    }
-}
-
-//Custom function callable from JS
-fn rusty_hello(_:&Value, args:&[Value], _:&mut Interpreter) -> ResultValue{
-    let arg = args.get(0).unwrap();
-    let val = format!("Hello from Rust! You passed {}", arg);
-    return ResultValue::from(Ok(Value::from(val)));
-}
-
-//Function appended as property of a custom global object, callable from JS
-fn add(_:&Value, args:&[Value], _engine:&mut Interpreter) -> ResultValue{
-    let arg0 = args.get(0).unwrap();
-    let arg1 = args.get(1).unwrap();
-    return ResultValue::from(Ok(Value::from(arg0.to_integer() + arg1.to_integer())));
+    ctx.eval(&buffer.unwrap());
 }
