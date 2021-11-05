@@ -34,26 +34,29 @@ fn require(_: &JsValue, args: &[JsValue], ctx: &mut Context) -> JsResult<JsValue
     //Read the module source file
     println!("Loading: {}", libfile);
     let buffer = read_to_string(libfile);
-    if buffer.is_err() {
-        println!("Error: {}", buffer.unwrap_err());
-        Ok(JsValue::from(-1))
-    } else {
-        //Load and parse the module source
-        match ctx.eval(buffer.unwrap()) {
-            Ok(t) => t,
-            Err(_) => panic!("called `Result::unwrap()` on an `Err` value"),
-        };
+    match buffer {
+        Err(error) => {
+            println!("Error: {}", error);
+            Ok(JsValue::from(-1))
+        }
+        Ok(buffer) => {
+            //Load and parse the module source
+            match ctx.eval(buffer) {
+                Ok(t) => t,
+                Err(_) => panic!("called `Result::unwrap()` on an `Err` value"),
+            };
 
-        //Access module.exports and return as ResultValue
-        let module_exports = ctx
-            .global_object()
-            .get("module", ctx)
-            .unwrap()
-            .as_object()
-            .unwrap()
-            .get("exports", ctx)
-            .unwrap();
+            //Access module.exports and return as ResultValue
+            let module_exports = ctx
+                .global_object()
+                .get("module", ctx)
+                .unwrap()
+                .as_object()
+                .unwrap()
+                .get("exports", ctx)
+                .unwrap();
 
-        Ok(module_exports)
+            Ok(module_exports)
+        }
     }
 }
