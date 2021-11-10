@@ -2,7 +2,7 @@ use std::fs::read_to_string;
 
 use boa::{property::Attribute, Context, JsResult, JsValue};
 
-pub fn run() {
+pub fn main() {
     let js_file_path = "./scripts/calctest.js";
     let buffer = read_to_string(js_file_path);
 
