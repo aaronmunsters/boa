@@ -10,3 +10,21 @@ edition = "2021"
 
 [dependencies]
 Boa = { path = "../boa" }
+
+
+[[bin]]
+name = "loadstring"
+path = "src/loadstring.rs"
+
+[[bin]]
+name = "loadfile"
+path = "src/loadfile.rs"
+
+
+[[bin]]
+name = "enhancedglobal"
+path = "src/enhancedglobal.rs"
+
+[[bin]]
+name = "modulehandler"
+path = "src/modulehandler.rs"

@@ -2,7 +2,7 @@ use std::fs::read_to_string;
 
 use boa::{exec::Executable, parse, Context};
 
-pub fn run() {
+pub fn main() {
     let js_file_path = "./scripts/helloworld.js";
 
     match read_to_string(js_file_path) {

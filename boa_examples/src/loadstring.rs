@@ -1,6 +1,6 @@
 use boa::{exec::Executable, parse, Context};
 
-pub fn run() {
+pub fn main() {
     let js_code = "console.log('Hello World from a JS code string!')";
 
     // Instantiate the execution context
