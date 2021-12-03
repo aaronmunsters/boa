@@ -1,6 +1,7 @@
-use std::fs::read_to_string;
+//! This example shows how to load a JavaScript file and execute it
 
 use boa::{exec::Executable, parse, Context};
+use std::fs::read_to_string;
 
 pub fn main() {
     let js_file_path = "./scripts/helloworld.js";

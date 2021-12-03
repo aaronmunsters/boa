@@ -1,3 +1,5 @@
+//! This example shows how to load a JavaScript string and execute it
+
 use boa::{exec::Executable, parse, Context};
 
 pub fn main() {
