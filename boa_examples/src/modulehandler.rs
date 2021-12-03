@@ -1,3 +1,5 @@
+//! This example shows you how to implement your own functions, for example a module handler which allows you to load other JavaScript files.
+
 use std::fs::read_to_string;
 
 use boa::{property::Attribute, Context, JsResult, JsValue};
