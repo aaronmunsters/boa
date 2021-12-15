@@ -1,6 +1,6 @@
 //! This example shows how to load a JavaScript string and execute it
 
-use boa::{exec::Executable, parse, Context};
+use boa::{exec::Executable, parse, Context, JsValue};
 
 pub fn main() {
     let js_code = "console.log('Hello World from a JS code string!')";
@@ -16,7 +16,7 @@ pub fn main() {
             eprintln!(
                 "Uncaught {}",
                 context
-                    .throw_syntax_error(e.to_string())
+                    .throw_syntax_error::<String, JsValue>(e.to_string())
                     .expect_err("interpreter.throw_syntax_error() did not return an error")
                     .display()
             );

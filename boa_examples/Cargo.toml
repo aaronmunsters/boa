@@ -20,7 +20,6 @@ path = "src/loadstring.rs"
 name = "loadfile"
 path = "src/loadfile.rs"
 
-
 [[bin]]
 name = "enhancedglobal"
 path = "src/enhancedglobal.rs"
