@@ -406,16 +406,14 @@ fn spread_in_arrow_function() {
     let b = interner.get_or_intern_static("b");
     check_parser(
         s,
-        vec![
-            ArrowFunctionDecl::new::<Box<[FormalParameter]>, StatementList>(
-                Box::new([FormalParameter::new(
-                    Declaration::new_with_identifier::<_, Option<Node>>(b, None),
-                    true,
-                )]),
-                vec![Identifier::new(b).into()].into(),
-            )
-            .into(),
-        ],
+        vec![ArrowFunctionDecl::new(
+            vec![FormalParameter::new(
+                Declaration::new_with_identifier(b, None),
+                true,
+            )],
+            vec![Identifier::from(b).into()],
+        )
+        .into()],
         &mut interner,
     );
 }

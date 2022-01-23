@@ -136,6 +136,6 @@ where
             }
         }
 
-        Ok(GeneratorExpr::new(name, params.parameters, body))
+        Ok(GeneratorExpr::new(name, params, body))
     }
 }

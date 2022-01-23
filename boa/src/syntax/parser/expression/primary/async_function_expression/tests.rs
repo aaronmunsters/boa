@@ -8,6 +8,7 @@ use crate::{
     },
     Interner,
 };
+use boa_interner::Sym;
 
 /// Checks async expression parsing.
 #[test]
@@ -24,8 +25,8 @@ fn check_async_expression() {
                 Some(
                     AsyncFunctionExpr::new::<_, _, StatementList>(
                         None,
-                        [],
-                        vec![Return::new(Const::from(1), None).into()].into(),
+                        vec![],
+                        vec![Return::new::<_, _, Option<Sym>>(Const::from(1), None).into()].into(),
                     )
                     .into(),
                 ),
@@ -53,15 +54,20 @@ fn check_nested_async_expression() {
                 Some(
                     AsyncFunctionExpr::new::<_, _, StatementList>(
                         None,
-                        [],
+                        vec![],
                         vec![DeclarationList::Const(
                             vec![Declaration::new_with_identifier(
                                 interner.get_or_intern_static("b"),
                                 Some(
                                     AsyncFunctionExpr::new::<_, _, StatementList>(
                                         None,
-                                        [],
-                                        vec![Return::new(Const::from(1), None).into()].into(),
+                                        vec![],
+                                        vec![Return::new::<_, _, Option<Sym>>(
+                                            Const::from(1),
+                                            None,
+                                        )
+                                        .into()]
+                                        .into(),
                                     )
                                     .into(),
                                 ),

@@ -6,6 +6,7 @@ use crate::{
         array_buffer::ArrayBuffer,
         function::arguments::{Arguments, MappedArguments},
         function::{BoundFunction, Captures, Function, NativeFunctionSignature},
+        generator::Generator,
         map::map_iterator::MapIterator,
         map::ordered_map::OrderedMap,
         object::for_in_iterator::ForInIterator,
@@ -120,6 +121,8 @@ pub enum ObjectKind {
     ForInIterator(ForInIterator),
     Function(Function),
     BoundFunction(BoundFunction),
+    Generator(Generator),
+    GeneratorFunction(Function),
     Set(OrderedSet<JsValue>),
     SetIterator(SetIterator),
     String(JsString),
@@ -246,6 +249,26 @@ impl ObjectData {
             } else {
                 &BOUND_FUNCTION_EXOTIC_INTERNAL_METHODS
             },
+        }
+    }
+
+    /// Create the `Generator` object data
+    pub fn generator(generator: Generator) -> Self {
+        Self {
+            kind: ObjectKind::Generator(generator),
+            internal_methods: &ORDINARY_INTERNAL_METHODS,
+        }
+    }
+
+    /// Create the `GeneratorFunction` object data
+    pub fn generator_function(function: Function) -> Self {
+        Self {
+            internal_methods: if function.is_constructor() {
+                &CONSTRUCTOR_INTERNAL_METHODS
+            } else {
+                &FUNCTION_INTERNAL_METHODS
+            },
+            kind: ObjectKind::GeneratorFunction(function),
         }
     }
 
@@ -381,6 +404,8 @@ impl Display for ObjectKind {
             Self::ForInIterator(_) => "ForInIterator",
             Self::Function(_) => "Function",
             Self::BoundFunction(_) => "BoundFunction",
+            Self::Generator(_) => "Generator",
+            Self::GeneratorFunction(_) => "GeneratorFunction",
             Self::RegExp(_) => "RegExp",
             Self::RegExpStringIterator(_) => "RegExpStringIterator",
             Self::Map(_) => "Map",
@@ -722,6 +747,10 @@ impl Object {
                 kind: ObjectKind::Function(ref function),
                 ..
             } => Some(function),
+            ObjectData {
+                kind: ObjectKind::GeneratorFunction(ref function),
+                ..
+            } => Some(function),
             _ => None,
         }
     }
@@ -731,6 +760,10 @@ impl Object {
         match self.data {
             ObjectData {
                 kind: ObjectKind::Function(ref mut function),
+                ..
+            } => Some(function),
+            ObjectData {
+                kind: ObjectKind::GeneratorFunction(ref mut function),
                 ..
             } => Some(function),
             _ => None,
@@ -744,6 +777,40 @@ impl Object {
                 kind: ObjectKind::BoundFunction(ref bound_function),
                 ..
             } => Some(bound_function),
+            _ => None,
+        }
+    }
+
+    /// Checks if it's a `Generator` object.
+    #[inline]
+    pub fn is_generator(&self) -> bool {
+        matches!(
+            self.data,
+            ObjectData {
+                kind: ObjectKind::Generator(_),
+                ..
+            }
+        )
+    }
+
+    #[inline]
+    pub fn as_generator(&self) -> Option<&Generator> {
+        match self.data {
+            ObjectData {
+                kind: ObjectKind::Generator(ref generator),
+                ..
+            } => Some(generator),
+            _ => None,
+        }
+    }
+
+    #[inline]
+    pub fn as_generator_mut(&mut self) -> Option<&mut Generator> {
+        match self.data {
+            ObjectData {
+                kind: ObjectKind::Generator(ref mut generator),
+                ..
+            } => Some(generator),
             _ => None,
         }
     }
@@ -1825,6 +1892,7 @@ impl<'context> ConstructorBuilder<'context> {
 
         {
             let mut prototype = self.prototype.borrow_mut();
+
             prototype.insert_property(
                 "constructor",
                 PropertyDescriptor::builder()

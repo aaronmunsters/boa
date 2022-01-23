@@ -20,8 +20,8 @@ use generator_decl::GeneratorDeclaration;
 
 use crate::{
     syntax::{
-        ast::node::{FormalParameter, StatementList},
-        ast::{Keyword, Node, Punctuator},
+        ast::node::StatementList,
+        ast::{node::FormalParameterList, Keyword, Node, Punctuator},
         lexer::{Position, TokenKind},
         parser::{
             function::{FormalParameters, FunctionBody},
@@ -125,7 +125,7 @@ fn parse_callable_declaration<R: Read, C: CallableDeclaration>(
     c: &C,
     cursor: &mut Cursor<R>,
     interner: &mut Interner,
-) -> Result<(Sym, Box<[FormalParameter]>, StatementList), ParseError> {
+) -> Result<(Sym, FormalParameterList, StatementList), ParseError> {
     let next_token = cursor.peek(0, interner)?;
     let name = if let Some(token) = next_token {
         match token.kind() {
@@ -216,5 +216,5 @@ fn parse_callable_declaration<R: Read, C: CallableDeclaration>(
         }
     }
 
-    Ok((name, params.parameters, body))
+    Ok((name, params, body))
 }

@@ -5,9 +5,13 @@
 //! The following operations are used to operate upon lexical environments
 //! This is the entrypoint to lexical environments.
 
-use super::global_environment_record::GlobalEnvironmentRecord;
 use crate::{
-    environment::environment_record_trait::EnvironmentRecordTrait, gc::Gc, object::JsObject,
+    environment::{
+        environment_record_trait::EnvironmentRecordTrait,
+        global_environment_record::GlobalEnvironmentRecord,
+    },
+    gc::{Finalize, Gc, Trace},
+    object::JsObject,
     BoaProfiler, Context, JsResult, JsValue,
 };
 use boa_interner::Sym;
@@ -35,7 +39,7 @@ pub enum VariableScope {
     Function,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Finalize, Trace)]
 pub struct LexicalEnvironment {
     environment_stack: VecDeque<Environment>,
 }

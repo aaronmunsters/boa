@@ -147,6 +147,6 @@ where
             }
         }
 
-        Ok(AsyncFunctionExpr::new(name, params.parameters, body))
+        Ok(AsyncFunctionExpr::new(name, params, body))
     }
 }

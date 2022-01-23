@@ -1,6 +1,6 @@
 use crate::{
     gc::{Finalize, Trace},
-    syntax::ast::node::{join_nodes, FormalParameter, Node, StatementList},
+    syntax::ast::node::{join_nodes, FormalParameterList, Node, StatementList},
 };
 use boa_interner::{Interner, ToInternedString};
 
@@ -23,7 +23,7 @@ use serde::{Deserialize, Serialize};
 #[cfg_attr(feature = "deser", derive(Serialize, Deserialize))]
 #[derive(Clone, Debug, Trace, Finalize, PartialEq)]
 pub struct ArrowFunctionDecl {
-    params: Box<[FormalParameter]>,
+    params: FormalParameterList,
     body: StatementList,
 }
 
@@ -31,7 +31,7 @@ impl ArrowFunctionDecl {
     /// Creates a new `ArrowFunctionDecl` AST node.
     pub(in crate::syntax) fn new<P, B>(params: P, body: B) -> Self
     where
-        P: Into<Box<[FormalParameter]>>,
+        P: Into<FormalParameterList>,
         B: Into<StatementList>,
     {
         Self {
@@ -41,7 +41,7 @@ impl ArrowFunctionDecl {
     }
 
     /// Gets the list of parameters of the arrow function.
-    pub(crate) fn params(&self) -> &[FormalParameter] {
+    pub(crate) fn params(&self) -> &FormalParameterList {
         &self.params
     }
 
@@ -56,7 +56,7 @@ impl ArrowFunctionDecl {
         interner: &Interner,
         indentation: usize,
     ) -> String {
-        let mut buf = format!("({}", join_nodes(interner, &self.params));
+        let mut buf = format!("({}", join_nodes(interner, &self.params.parameters));
         if self.body().items().is_empty() {
             buf.push_str(") => {}");
         } else {

@@ -3,9 +3,12 @@
 //! This module is for the CodeBlock which implements a function representation in the VM
 
 use crate::{
-    builtins::function::{
-        arguments::Arguments, Captures, ClosureFunctionSignature, Function,
-        NativeFunctionSignature, ThisMode,
+    builtins::{
+        function::{
+            arguments::Arguments, Captures, ClosureFunctionSignature, Function,
+            NativeFunctionSignature, ThisMode,
+        },
+        generator::{Generator, GeneratorContext, GeneratorState},
     },
     context::StandardObjects,
     environment::{
@@ -15,11 +18,15 @@ use crate::{
     gc::{Finalize, Gc, Trace},
     object::{internal_methods::get_prototype_from_constructor, JsObject, ObjectData},
     property::PropertyDescriptor,
-    syntax::ast::node::FormalParameter,
-    vm::{call_frame::FinallyReturn, CallFrame, Opcode},
+    syntax::ast::node::FormalParameterList,
+    vm::{
+        call_frame::{FinallyReturn, GeneratorResumeKind},
+        CallFrame, Opcode,
+    },
     Context, JsResult, JsString, JsValue,
 };
 use boa_interner::{Interner, Sym, ToInternedString};
+use gc::GcCell;
 use std::{convert::TryInto, mem::size_of};
 
 /// This represents whether a value can be read from [`CodeBlock`] code.
@@ -66,7 +73,7 @@ pub struct CodeBlock {
     pub(crate) this_mode: ThisMode,
 
     /// Parameters passed to this function.
-    pub(crate) params: Box<[FormalParameter]>,
+    pub(crate) params: FormalParameterList,
 
     /// Bytecode
     pub(crate) code: Vec<u8>,
@@ -97,7 +104,7 @@ impl CodeBlock {
             strict,
             constructor,
             this_mode: ThisMode::Global,
-            params: Vec::new().into_boxed_slice(),
+            params: Vec::new().into(),
             lexical_name_argument: false,
         }
     }
@@ -173,7 +180,8 @@ impl CodeBlock {
             | Opcode::New
             | Opcode::NewWithRest
             | Opcode::ForInLoopInitIterator
-            | Opcode::ForInLoopNext => {
+            | Opcode::ForInLoopNext
+            | Opcode::GeneratorNextDelegate => {
                 let result = self.read::<u32>(*pc).to_string();
                 *pc += size_of::<u32>();
                 result
@@ -185,7 +193,7 @@ impl CodeBlock {
                 *pc += size_of::<u32>();
                 format!("{}, {}", operand1, operand2)
             }
-            Opcode::GetFunction => {
+            Opcode::GetFunction | Opcode::GetGenerator => {
                 let operand = self.read::<u32>(*pc);
                 *pc += size_of::<u32>();
                 format!(
@@ -291,6 +299,8 @@ impl CodeBlock {
             | Opcode::PushNewArray
             | Opcode::PopOnReturnAdd
             | Opcode::PopOnReturnSub
+            | Opcode::Yield
+            | Opcode::GeneratorNext
             | Opcode::Nop => String::new(),
         }
     }
@@ -430,6 +440,69 @@ impl JsVmFunction {
     }
 }
 
+#[derive(Debug)]
+#[allow(missing_copy_implementations)]
+pub(crate) struct JsVmGeneratorFunction;
+
+impl JsVmGeneratorFunction {
+    #[allow(clippy::new_ret_no_self)]
+    pub(crate) fn new(
+        code: Gc<CodeBlock>,
+        environment: Environment,
+        context: &mut Context,
+    ) -> JsObject {
+        let function_prototype = context
+            .standard_objects()
+            .generator_function_object()
+            .prototype();
+
+        let name_property = PropertyDescriptor::builder()
+            .value(context.interner().resolve_expect(code.name))
+            .writable(false)
+            .enumerable(false)
+            .configurable(true)
+            .build();
+
+        let length_property = PropertyDescriptor::builder()
+            .value(code.length)
+            .writable(false)
+            .enumerable(false)
+            .configurable(true)
+            .build();
+
+        let prototype = JsObject::from_proto_and_data(
+            context.standard_objects().generator_object().prototype(),
+            ObjectData::ordinary(),
+        );
+
+        let function = Function::VmGenerator { code, environment };
+
+        let constructor = JsObject::from_proto_and_data(
+            function_prototype,
+            ObjectData::generator_function(function),
+        );
+
+        let prototype_property = PropertyDescriptor::builder()
+            .value(prototype)
+            .writable(true)
+            .enumerable(false)
+            .configurable(false)
+            .build();
+
+        constructor
+            .define_property_or_throw("prototype", prototype_property, context)
+            .unwrap();
+        constructor
+            .define_property_or_throw("name", name_property, context)
+            .unwrap();
+        constructor
+            .define_property_or_throw("length", length_property, context)
+            .unwrap();
+
+        constructor
+    }
+}
+
 pub(crate) enum FunctionBody {
     Ordinary {
         code: Gc<CodeBlock>,
@@ -442,9 +515,12 @@ pub(crate) enum FunctionBody {
         function: Box<dyn ClosureFunctionSignature>,
         captures: Captures,
     },
+    Generator {
+        code: Gc<CodeBlock>,
+        environment: Environment,
+    },
 }
 
-// TODO: this should be modified to not take `exit_on_return` and then moved to `internal_methods`
 impl JsObject {
     pub(crate) fn call_internal(
         &self,
@@ -453,7 +529,6 @@ impl JsObject {
         context: &mut Context,
     ) -> JsResult<JsValue> {
         let this_function_object = self.clone();
-        // let mut has_parameter_expressions = false;
 
         if !self.is_callable() {
             return context.throw_type_error("not a callable function");
@@ -485,6 +560,10 @@ impl JsObject {
                     captures: captures.clone(),
                 },
                 Function::VmOrdinary { code, environment } => FunctionBody::Ordinary {
+                    code: code.clone(),
+                    environment: environment.clone(),
+                },
+                Function::VmGenerator { code, environment } => FunctionBody::Generator {
                     code: code.clone(),
                     environment: environment.clone(),
                 },
@@ -533,7 +612,7 @@ impl JsObject {
                 let mut has_parameter_expressions = false;
 
                 let arguments = Sym::ARGUMENTS;
-                for param in code.params.iter() {
+                for param in code.params.parameters.iter() {
                     has_parameter_expressions = has_parameter_expressions || param.init().is_some();
                     arguments_in_parameter_names =
                         arguments_in_parameter_names || param.names().contains(&arguments);
@@ -550,8 +629,8 @@ impl JsObject {
                 //
                 // https://tc39.es/ecma262/#sec-functiondeclarationinstantiation
                 if !lexical_this_mode
-                    && !arguments_in_parameter_names
-                    && (has_parameter_expressions || !code.lexical_name_argument)
+                    && !code.params.has_arguments
+                    && (code.params.has_expressions || !code.lexical_name_argument)
                 {
                     // Add arguments object
                     let arguments_obj =
@@ -560,7 +639,7 @@ impl JsObject {
                         } else {
                             Arguments::create_mapped_arguments_object(
                                 &this_function_object,
-                                &code.params,
+                                &code.params.parameters,
                                 args,
                                 &local_env,
                                 context,
@@ -573,9 +652,12 @@ impl JsObject {
                 let arg_count = args.len();
 
                 // Push function arguments to the stack.
-                let args = if code.params.len() > args.len() {
+                let args = if code.params.parameters.len() > args.len() {
                     let mut v = args.to_vec();
-                    v.extend(vec![JsValue::Undefined; code.params.len() - args.len()]);
+                    v.extend(vec![
+                        JsValue::Undefined;
+                        code.params.parameters.len() - args.len()
+                    ]);
                     v
                 } else {
                     args.to_vec()
@@ -585,7 +667,7 @@ impl JsObject {
                     context.vm.push(arg)
                 }
 
-                let param_count = code.params.len();
+                let param_count = code.params.parameters.len();
 
                 let this = if this.is_null_or_undefined() {
                     context
@@ -596,6 +678,8 @@ impl JsObject {
                         .expect("conversion to object cannot fail here")
                         .into()
                 };
+
+                let has_expressions = code.params.has_expressions;
 
                 context.vm.push_frame(CallFrame {
                     prev: None,
@@ -609,16 +693,165 @@ impl JsObject {
                     pop_env_on_return: 0,
                     param_count,
                     arg_count,
+                    generator_resume_kind: GeneratorResumeKind::Normal,
                 });
 
                 let result = context.run();
+                context.vm.pop_frame();
 
                 context.pop_environment();
-                if has_parameter_expressions {
+                if has_expressions {
                     context.pop_environment();
                 }
 
-                result
+                let (result, _) = result?;
+                Ok(result)
+            }
+            FunctionBody::Generator { code, environment } => {
+                let lexical_this_mode = code.this_mode == ThisMode::Lexical;
+
+                // Create a new Function environment whose parent is set to the scope of the function declaration (self.environment)
+                // <https://tc39.es/ecma262/#sec-prepareforordinarycall>
+                let local_env = FunctionEnvironmentRecord::new(
+                    this_function_object.clone(),
+                    if !lexical_this_mode {
+                        Some(this.clone())
+                    } else {
+                        None
+                    },
+                    Some(environment.clone()),
+                    // Arrow functions do not have a this binding https://tc39.es/ecma262/#sec-function-environment-records
+                    if lexical_this_mode {
+                        BindingStatus::Lexical
+                    } else {
+                        BindingStatus::Uninitialized
+                    },
+                    JsValue::undefined(),
+                    context,
+                )?;
+
+                // Turn local_env into Environment so it can be cloned
+                let local_env: Environment = local_env.into();
+
+                // Push the environment first so that it will be used by default parameters
+                context.push_environment(local_env.clone());
+
+                for param in code.params.parameters.as_ref() {
+                    for name in param.names() {
+                        local_env
+                            .create_mutable_binding(name, false, true, context)
+                            .expect("Failed to create argument binding");
+                    }
+                }
+
+                // An arguments object is added when all of the following conditions are met
+                // - If not in an arrow function (10.2.11.16)
+                // - If the parameter list does not contain `arguments` (10.2.11.17)
+                // - If there are default parameters or if lexical names and function names do not contain `arguments` (10.2.11.18)
+                //
+                // https://tc39.es/ecma262/#sec-functiondeclarationinstantiation
+                if !lexical_this_mode
+                    && !code.params.has_arguments
+                    && (code.params.has_expressions || !code.lexical_name_argument)
+                {
+                    // Add arguments object
+                    let arguments_obj = if context.strict() || code.strict || !code.params.is_simple
+                    {
+                        Arguments::create_unmapped_arguments_object(args, context)
+                    } else {
+                        Arguments::create_mapped_arguments_object(
+                            &this_function_object,
+                            &code.params.parameters,
+                            args,
+                            &local_env,
+                            context,
+                        )
+                    };
+                    local_env.create_mutable_binding(Sym::ARGUMENTS, false, true, context)?;
+                    local_env.initialize_binding(Sym::ARGUMENTS, arguments_obj.into(), context)?;
+                }
+
+                let arg_count = args.len();
+
+                // Push function arguments to the stack.
+                let mut args = if code.params.parameters.len() > args.len() {
+                    let mut v = args.to_vec();
+                    v.extend(vec![
+                        JsValue::Undefined;
+                        code.params.parameters.len() - args.len()
+                    ]);
+                    v
+                } else {
+                    args.to_vec()
+                };
+                args.reverse();
+
+                let param_count = code.params.parameters.len();
+
+                let this = if this.is_null_or_undefined() {
+                    context
+                        .get_global_this_binding()
+                        .expect("global env must have this binding")
+                } else {
+                    this.to_object(context)
+                        .expect("conversion to object cannot fail here")
+                        .into()
+                };
+
+                let call_frame = CallFrame {
+                    prev: None,
+                    code,
+                    this,
+                    pc: 0,
+                    catch: Vec::new(),
+                    finally_return: FinallyReturn::None,
+                    finally_jump: Vec::new(),
+                    pop_on_return: 0,
+                    pop_env_on_return: 0,
+                    param_count,
+                    arg_count,
+                    generator_resume_kind: GeneratorResumeKind::Normal,
+                };
+                let mut stack = args;
+                let mut realm = context.realm.clone();
+
+                std::mem::swap(&mut context.realm, &mut realm);
+                std::mem::swap(&mut context.vm.stack, &mut stack);
+                context.vm.push_frame(call_frame);
+
+                let init_result = context.run();
+
+                let call_frame = context.vm.pop_frame().unwrap();
+                std::mem::swap(&mut context.realm, &mut realm);
+                std::mem::swap(&mut context.vm.stack, &mut stack);
+
+                let prototype = if let Some(prototype) = this_function_object
+                    .get("prototype", context)
+                    .expect("GeneratorFunction must have a prototype property")
+                    .as_object()
+                {
+                    prototype.clone()
+                } else {
+                    context.standard_objects().generator_object().prototype()
+                };
+
+                let generator = JsObject::from_proto_and_data(
+                    prototype,
+                    ObjectData::generator(Generator {
+                        state: GeneratorState::SuspendedStart,
+                        context: Some(Gc::new(GcCell::new(GeneratorContext {
+                            realm,
+                            call_frame: *call_frame,
+                            stack,
+                        }))),
+                    }),
+                );
+
+                context.pop_environment();
+
+                init_result?;
+
+                Ok(generator.into())
             }
         }
     }
@@ -654,6 +887,9 @@ impl JsObject {
                     code: code.clone(),
                     environment: environment.clone(),
                 },
+                Function::VmGenerator { .. } => {
+                    unreachable!("generator function cannot be a constructor")
+                }
             }
         };
 
@@ -703,7 +939,7 @@ impl JsObject {
                 let mut is_simple_parameter_list = true;
                 let mut has_parameter_expressions = false;
 
-                for param in code.params.iter() {
+                for param in code.params.parameters.iter() {
                     has_parameter_expressions = has_parameter_expressions || param.init().is_some();
                     arguments_in_parameter_names =
                         arguments_in_parameter_names || param.names().contains(&Sym::ARGUMENTS);
@@ -720,8 +956,8 @@ impl JsObject {
                 //
                 // https://tc39.es/ecma262/#sec-functiondeclarationinstantiation
                 if !lexical_this_mode
-                    && !arguments_in_parameter_names
-                    && (has_parameter_expressions || !code.lexical_name_argument)
+                    && !code.params.has_arguments
+                    && (code.params.has_expressions || !code.lexical_name_argument)
                 {
                     // Add arguments object
                     let arguments_obj =
@@ -730,7 +966,7 @@ impl JsObject {
                         } else {
                             Arguments::create_mapped_arguments_object(
                                 &this_function_object,
-                                &code.params,
+                                &code.params.parameters,
                                 args,
                                 &local_env,
                                 context,
@@ -743,9 +979,12 @@ impl JsObject {
                 let arg_count = args.len();
 
                 // Push function arguments to the stack.
-                let args = if code.params.len() > args.len() {
+                let args = if code.params.parameters.len() > args.len() {
                     let mut v = args.to_vec();
-                    v.extend(vec![JsValue::Undefined; code.params.len() - args.len()]);
+                    v.extend(vec![
+                        JsValue::Undefined;
+                        code.params.parameters.len() - args.len()
+                    ]);
                     v
                 } else {
                     args.to_vec()
@@ -755,7 +994,7 @@ impl JsObject {
                     context.vm.push(arg)
                 }
 
-                let param_count = code.params.len();
+                let param_count = code.params.parameters.len();
 
                 let this = if this.is_null_or_undefined() {
                     context
@@ -766,6 +1005,8 @@ impl JsObject {
                         .expect("conversion to object cannot fail here")
                         .into()
                 };
+
+                let has_expressions = code.params.has_expressions;
 
                 context.vm.push_frame(CallFrame {
                     prev: None,
@@ -779,22 +1020,30 @@ impl JsObject {
                     pop_env_on_return: 0,
                     param_count,
                     arg_count,
+                    generator_resume_kind: GeneratorResumeKind::Normal,
                 });
 
-                let result = context.run()?;
+                let result = context.run();
 
                 let this = context.get_this_binding();
 
                 context.pop_environment();
-                if has_parameter_expressions {
+                if has_expressions {
                     context.pop_environment();
                 }
+
+                context.vm.pop_frame();
+
+                let (result, _) = result?;
 
                 if result.is_object() {
                     Ok(result)
                 } else {
                     this
                 }
+            }
+            FunctionBody::Generator { .. } => {
+                unreachable!("generator function cannot be a constructor")
             }
         }
     }

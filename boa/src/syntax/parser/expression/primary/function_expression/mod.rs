@@ -134,6 +134,6 @@ where
             }
         }
 
-        Ok(FunctionExpr::new(name, params.parameters, body))
+        Ok(FunctionExpr::new(name, params, body))
     }
 }

@@ -12,7 +12,11 @@ mod tests;
 
 use crate::{
     syntax::{
-        ast::{node, node::declaration::Declaration, Punctuator},
+        ast::{
+            node::declaration::Declaration,
+            node::{self, FormalParameterList},
+            Punctuator,
+        },
         lexer::{Error as LexError, InputElement, TokenKind},
         parser::{
             expression::Initializer,
@@ -27,13 +31,6 @@ use crate::{
 use boa_interner::Sym;
 use rustc_hash::FxHashSet;
 use std::io::Read;
-
-/// Intermediate type for a list of FormalParameters with some meta information.
-pub(in crate::syntax::parser) struct FormalParameterList {
-    pub(in crate::syntax::parser) parameters: Box<[node::FormalParameter]>,
-    pub(in crate::syntax::parser) is_simple: bool,
-    pub(in crate::syntax::parser) has_duplicates: bool,
-}
 
 /// Formal parameters parsing.
 ///
@@ -80,6 +77,9 @@ where
         let mut params = Vec::new();
         let mut is_simple = true;
         let mut has_duplicates = false;
+        let mut has_rest = false;
+        let mut has_expressions = false;
+        let mut has_arguments = false;
 
         let next_token = cursor.peek(0, interner)?.ok_or(ParseError::AbruptEnd)?;
         if next_token.kind() == &TokenKind::Punctuator(Punctuator::CloseParen) {
@@ -87,6 +87,9 @@ where
                 parameters: params.into_boxed_slice(),
                 is_simple,
                 has_duplicates,
+                has_rest,
+                has_expressions,
+                has_arguments,
             });
         }
         let start_position = next_token.span().start();
@@ -99,6 +102,7 @@ where
             let next_param = match cursor.peek(0, interner)? {
                 Some(tok) if tok.kind() == &TokenKind::Punctuator(Punctuator::Spread) => {
                     rest_param = true;
+                    has_rest = true;
                     FunctionRestParameter::new(self.allow_yield, self.allow_await)
                         .parse(cursor, interner)?
                 }
@@ -112,6 +116,9 @@ where
                     start_position,
                 )));
             }
+
+            has_expressions = has_expressions || next_param.init().is_some();
+            has_arguments = has_arguments || next_param.names().contains(&Sym::ARGUMENTS);
 
             if next_param.is_rest_param()
                 || next_param.init().is_some()
@@ -161,6 +168,9 @@ where
             parameters: params.into_boxed_slice(),
             is_simple,
             has_duplicates,
+            has_rest,
+            has_expressions,
+            has_arguments,
         })
     }
 }

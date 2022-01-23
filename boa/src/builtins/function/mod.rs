@@ -178,6 +178,10 @@ pub enum Function {
         code: Gc<crate::vm::CodeBlock>,
         environment: Environment,
     },
+    VmGenerator {
+        code: Gc<crate::vm::CodeBlock>,
+        environment: Environment,
+    },
 }
 
 impl fmt::Debug for Function {
@@ -193,6 +197,7 @@ impl Function {
             Self::Native { constructor, .. } => *constructor,
             Self::Closure { constructor, .. } => *constructor,
             Self::VmOrdinary { code, .. } => code.constructor,
+            Self::VmGenerator { code, .. } => code.constructor,
         }
     }
 }
@@ -461,6 +466,10 @@ impl BuiltInFunctionObject {
                 Ok(format!("[Function: {}]", &name).into())
             }
             (Function::VmOrdinary { .. }, None) => Ok("[Function (anonymous)]".into()),
+            (Function::VmGenerator { .. }, Some(name)) => {
+                Ok(format!("[Function*: {}]", &name).into())
+            }
+            (Function::VmGenerator { .. }, None) => Ok("[Function* (anonymous)]".into()),
             _ => Ok("TODO".into()),
         }
     }

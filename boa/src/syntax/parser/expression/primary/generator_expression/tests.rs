@@ -23,7 +23,7 @@ fn check_generator_function_expression() {
                 Some(
                     GeneratorExpr::new::<_, _, StatementList>(
                         None,
-                        [],
+                        vec![],
                         vec![Yield::new(Const::from(1), false).into()].into(),
                     )
                     .into(),
@@ -50,7 +50,7 @@ fn check_generator_function_delegate_yield_expression() {
                 Some(
                     GeneratorExpr::new::<_, _, StatementList>(
                         None,
-                        [],
+                        vec![],
                         vec![Yield::new(Const::from(1), true).into()].into(),
                     )
                     .into(),

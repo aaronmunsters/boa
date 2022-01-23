@@ -153,6 +153,6 @@ where
         }
 
         //implement the below AsyncGeneratorExpr in ast::node
-        Ok(AsyncGeneratorExpr::new(name, params.parameters, body))
+        Ok(AsyncGeneratorExpr::new(name, params, body))
     }
 }

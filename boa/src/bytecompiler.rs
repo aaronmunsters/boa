@@ -6,7 +6,7 @@ use crate::{
             declaration::{BindingPatternTypeArray, BindingPatternTypeObject, DeclarationPattern},
             iteration::IterableLoopInitializer,
             template::TemplateElement,
-            Declaration, GetConstField, GetField, MethodDefinitionKind, PropertyDefinition,
+            Declaration, GetConstField, GetField, MethodDefinition, PropertyDefinition,
             PropertyName, StatementList,
         },
         op::{AssignOp, BinOp, BitOp, CompOp, LogOp, NumOp, UnaryOp},
@@ -695,11 +695,11 @@ impl<'b> ByteCompiler<'b> {
                                 self.emit_opcode(Opcode::DefineOwnPropertyByValue);
                             }
                         },
-                        PropertyDefinition::MethodDefinition(kind, name, func) => {
+                        PropertyDefinition::MethodDefinition(kind, name) => {
                             match kind {
-                                MethodDefinitionKind::Get => match name {
+                                MethodDefinition::Get(expr) => match name {
                                     PropertyName::Literal(name) => {
-                                        self.compile_stmt(&func.clone().into(), true);
+                                        self.function(&expr.clone().into(), true);
                                         self.emit_opcode(Opcode::Swap);
                                         let name = self.interner.resolve_expect(*name);
                                         let index = self.get_or_insert_name(name);
@@ -707,13 +707,13 @@ impl<'b> ByteCompiler<'b> {
                                     }
                                     PropertyName::Computed(name_node) => {
                                         self.compile_stmt(name_node, true);
-                                        self.compile_stmt(&func.clone().into(), true);
+                                        self.function(&expr.clone().into(), true);
                                         self.emit_opcode(Opcode::SetPropertyGetterByValue);
                                     }
                                 },
-                                MethodDefinitionKind::Set => match name {
+                                MethodDefinition::Set(expr) => match name {
                                     PropertyName::Literal(name) => {
-                                        self.compile_stmt(&func.clone().into(), true);
+                                        self.function(&expr.clone().into(), true);
                                         self.emit_opcode(Opcode::Swap);
                                         let name = self.interner.resolve_expect(*name);
                                         let index = self.get_or_insert_name(name);
@@ -721,13 +721,13 @@ impl<'b> ByteCompiler<'b> {
                                     }
                                     PropertyName::Computed(name_node) => {
                                         self.compile_stmt(name_node, true);
-                                        self.compile_stmt(&func.clone().into(), true);
+                                        self.function(&expr.clone().into(), true);
                                         self.emit_opcode(Opcode::SetPropertySetterByValue);
                                     }
                                 },
-                                MethodDefinitionKind::Ordinary => match name {
+                                MethodDefinition::Ordinary(expr) => match name {
                                     PropertyName::Literal(name) => {
-                                        self.compile_stmt(&func.clone().into(), true);
+                                        self.function(&expr.clone().into(), true);
                                         self.emit_opcode(Opcode::Swap);
                                         let name = self.interner.resolve_expect(*name);
                                         let index = self.get_or_insert_name(name);
@@ -735,28 +735,25 @@ impl<'b> ByteCompiler<'b> {
                                     }
                                     PropertyName::Computed(name_node) => {
                                         self.compile_stmt(name_node, true);
-                                        self.compile_stmt(&func.clone().into(), true);
+                                        self.function(&expr.clone().into(), true);
                                         self.emit_opcode(Opcode::DefineOwnPropertyByValue);
                                     }
                                 },
-                                MethodDefinitionKind::Generator => {
-                                    // TODO: Implement generators
-                                    match name {
-                                        PropertyName::Literal(name) => {
-                                            self.emit_opcode(Opcode::PushUndefined);
-                                            self.emit_opcode(Opcode::Swap);
-                                            let name = self.interner.resolve_expect(*name);
-                                            let index = self.get_or_insert_name(name);
-                                            self.emit(Opcode::DefineOwnPropertyByName, &[index]);
-                                        }
-                                        PropertyName::Computed(name_node) => {
-                                            self.compile_stmt(name_node, true);
-                                            self.emit_opcode(Opcode::PushUndefined);
-                                            self.emit_opcode(Opcode::DefineOwnPropertyByValue);
-                                        }
+                                MethodDefinition::Generator(expr) => match name {
+                                    PropertyName::Literal(name) => {
+                                        self.emit_opcode(Opcode::PushUndefined);
+                                        self.emit_opcode(Opcode::Swap);
+                                        let name = self.interner.resolve_expect(*name);
+                                        let index = self.get_or_insert_name(name);
+                                        self.emit(Opcode::DefineOwnPropertyByName, &[index]);
                                     }
-                                }
-                                MethodDefinitionKind::Async => {
+                                    PropertyName::Computed(name_node) => {
+                                        self.compile_stmt(name_node, true);
+                                        self.function(&expr.clone().into(), true);
+                                        self.emit_opcode(Opcode::DefineOwnPropertyByValue);
+                                    }
+                                },
+                                MethodDefinition::Async(_) => {
                                     // TODO: Implement async
                                     match name {
                                         PropertyName::Literal(name) => {
@@ -773,7 +770,7 @@ impl<'b> ByteCompiler<'b> {
                                         }
                                     }
                                 }
-                                MethodDefinitionKind::AsyncGenerator => {
+                                MethodDefinition::AsyncGenerator(_) => {
                                     // TODO: Implement async generators
                                     match name {
                                         PropertyName::Literal(name) => {
@@ -896,17 +893,33 @@ impl<'b> ByteCompiler<'b> {
             Node::AwaitExpr(_) => {
                 self.emit_opcode(Opcode::PushUndefined);
             }
-            // TODO: implement GeneratorExpr
-            Node::GeneratorExpr(_) => {
-                self.emit_opcode(Opcode::PushUndefined);
-            }
+            Node::GeneratorExpr(_) => self.function(expr, use_expr),
             // TODO: implement AsyncGeneratorExpr
             Node::AsyncGeneratorExpr(_) => {
                 self.emit_opcode(Opcode::PushUndefined);
             }
-            // TODO: implement Yield
-            Node::Yield(_) => {
-                self.emit_opcode(Opcode::PushUndefined);
+            Node::Yield(r#yield) => {
+                if let Some(expr) = r#yield.expr() {
+                    self.compile_expr(expr, true);
+                } else {
+                    self.emit_opcode(Opcode::PushUndefined);
+                }
+
+                if r#yield.delegate() {
+                    self.emit_opcode(Opcode::InitIterator);
+                    self.emit_opcode(Opcode::PushUndefined);
+                    let start_address = self.next_opcode_location();
+                    let start = self.jump_with_custom_opcode(Opcode::GeneratorNextDelegate);
+                    self.emit(Opcode::Jump, &[start_address]);
+                    self.patch_jump(start);
+                } else {
+                    self.emit_opcode(Opcode::Yield);
+                    self.emit_opcode(Opcode::GeneratorNext);
+                }
+
+                if !use_expr {
+                    self.emit_opcode(Opcode::Pop);
+                }
             }
             Node::TaggedTemplate(template) => {
                 match template.tag() {
@@ -1350,6 +1363,8 @@ impl<'b> ByteCompiler<'b> {
                 let start_address = self.next_opcode_location();
                 self.push_switch_control_info(None, start_address);
 
+                self.emit_opcode(Opcode::PushDeclarativeEnvironment);
+
                 self.compile_expr(switch.val(), true);
                 let mut labels = Vec::with_capacity(switch.cases().len());
                 for case in switch.cases() {
@@ -1372,6 +1387,7 @@ impl<'b> ByteCompiler<'b> {
                 }
 
                 self.pop_switch_control_info();
+                self.emit_opcode(Opcode::PopEnvironment);
             }
             Node::FunctionDecl(_function) => self.function(node, false),
             Node::Return(ret) => {
@@ -1456,9 +1472,7 @@ impl<'b> ByteCompiler<'b> {
                 self.emit_opcode(Opcode::PushUndefined);
             }
             // TODO: implement GeneratorDecl
-            Node::GeneratorDecl(_) => {
-                self.emit_opcode(Opcode::PushUndefined);
-            }
+            Node::GeneratorDecl(_) => self.function(node, false),
             // TODO: implement AsyncGeneratorDecl
             Node::AsyncGeneratorDecl(_) => {
                 self.emit_opcode(Opcode::PushUndefined);
@@ -1476,35 +1490,56 @@ impl<'b> ByteCompiler<'b> {
             Arrow,
         }
 
-        let (kind, name, parameters, body) = match function {
+        let (kind, name, parameters, body, generator) = match function {
             Node::FunctionDecl(function) => (
                 FunctionKind::Declaration,
                 Some(function.name()),
                 function.parameters(),
                 function.body(),
+                false,
+            ),
+            Node::GeneratorDecl(generator) => (
+                FunctionKind::Declaration,
+                Some(generator.name()),
+                generator.parameters(),
+                generator.body(),
+                true,
             ),
             Node::FunctionExpr(function) => (
                 FunctionKind::Expression,
                 function.name(),
                 function.parameters(),
                 function.body(),
+                false,
+            ),
+            Node::GeneratorExpr(generator) => (
+                FunctionKind::Expression,
+                generator.name(),
+                generator.parameters(),
+                generator.body(),
+                true,
             ),
             Node::ArrowFunctionDecl(function) => (
                 FunctionKind::Arrow,
                 None,
                 function.params(),
                 function.body(),
+                false,
             ),
             _ => unreachable!(),
         };
 
         let strict = body.strict() || self.code_block.strict;
-        let length = parameters.len() as u32;
+        let length = parameters.parameters.len() as u32;
         let mut code = CodeBlock::new(name.unwrap_or(Sym::EMPTY_STRING), length, strict, true);
 
         if let FunctionKind::Arrow = kind {
             code.constructor = false;
             code.this_mode = ThisMode::Lexical;
+        }
+
+        if generator {
+            code.constructor = false;
         }
 
         let mut compiler = ByteCompiler {
@@ -1515,13 +1550,13 @@ impl<'b> ByteCompiler<'b> {
             interner: self.interner,
         };
 
-        let mut has_rest_parameter = false;
-        let mut has_parameter_expressions = false;
-        for parameter in parameters {
-            has_parameter_expressions = has_parameter_expressions || parameter.init().is_some();
-
+        let opcode = if parameters.has_duplicates {
+            Opcode::SetName
+        } else {
+            Opcode::DefInitArg
+        };
+        for parameter in parameters.parameters.as_ref() {
             if parameter.is_rest_param() {
-                has_rest_parameter = true;
                 compiler.emit_opcode(Opcode::RestParameterInit);
             }
 
@@ -1534,27 +1569,33 @@ impl<'b> ByteCompiler<'b> {
                         compiler.compile_expr(init, true);
                         compiler.patch_jump(skip);
                     }
-                    compiler.emit(Opcode::DefInitArg, &[index]);
+                    compiler.emit(opcode, &[index]);
                 }
                 Declaration::Pattern(pattern) => {
-                    compiler.compile_declaration_pattern(pattern, Opcode::DefInitArg);
+                    compiler.compile_declaration_pattern(pattern, opcode);
                 }
             }
         }
 
-        if !has_rest_parameter {
+        if !parameters.has_rest {
             compiler.emit_opcode(Opcode::RestParameterPop);
         }
 
-        if has_parameter_expressions {
+        if parameters.has_expressions {
             compiler.emit_opcode(Opcode::PushFunctionEnvironment)
+        }
+
+        // When a generator object is created from a generator function, the generator executes until here to init parameters.
+        if generator {
+            compiler.emit_opcode(Opcode::PushUndefined);
+            compiler.emit_opcode(Opcode::Yield);
         }
 
         for node in body.items() {
             compiler.compile_stmt(node, false);
         }
 
-        compiler.code_block.params = parameters.to_owned().into_boxed_slice();
+        compiler.code_block.params = parameters.clone();
 
         // TODO These are redundant if a function returns so may need to check if a function returns and adding these if it doesn't
         compiler.emit(Opcode::PushUndefined, &[]);
@@ -1565,7 +1606,11 @@ impl<'b> ByteCompiler<'b> {
         let index = self.code_block.functions.len() as u32;
         self.code_block.functions.push(code);
 
-        self.emit(Opcode::GetFunction, &[index]);
+        if generator {
+            self.emit(Opcode::GetGenerator, &[index]);
+        } else {
+            self.emit(Opcode::GetFunction, &[index]);
+        }
 
         match kind {
             FunctionKind::Declaration => {
@@ -1596,13 +1641,17 @@ impl<'b> ByteCompiler<'b> {
         match call.expr() {
             Node::GetConstField(field) => {
                 self.compile_expr(field.obj(), true);
-                self.emit(Opcode::Dup, &[]);
+                if kind == CallKind::Call {
+                    self.emit(Opcode::Dup, &[]);
+                }
                 let index = self.get_or_insert_name(self.interner.resolve_expect(field.field()));
                 self.emit(Opcode::GetPropertyByName, &[index]);
             }
             Node::GetField(field) => {
                 self.compile_expr(field.obj(), true);
-                self.emit(Opcode::Dup, &[]);
+                if kind == CallKind::Call {
+                    self.emit(Opcode::Dup, &[]);
+                }
                 self.compile_expr(field.field(), true);
                 self.emit(Opcode::Swap, &[]);
                 self.emit(Opcode::GetPropertyByValue, &[]);

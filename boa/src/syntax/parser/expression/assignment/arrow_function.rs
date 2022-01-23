@@ -12,21 +12,22 @@ use crate::{
     syntax::{
         ast::{
             node::{
-                declaration::Declaration, ArrowFunctionDecl, FormalParameter, Node, Return,
-                StatementList,
+                declaration::Declaration, ArrowFunctionDecl, FormalParameter, FormalParameterList,
+                Node, Return, StatementList,
             },
             Punctuator,
         },
         lexer::{Error as LexError, Position, TokenKind},
         parser::{
             error::{ErrorContext, ParseError, ParseResult},
-            function::{FormalParameterList, FormalParameters, FunctionBody},
+            function::{FormalParameters, FunctionBody},
             statement::BindingIdentifier,
             AllowAwait, AllowIn, AllowYield, Cursor, TokenParser,
         },
     },
     BoaProfiler, Interner,
 };
+use boa_interner::Sym;
 
 use std::io::Read;
 
@@ -96,6 +97,7 @@ where
                 let param = BindingIdentifier::new(self.allow_yield, self.allow_await)
                     .parse(cursor, interner)
                     .context("arrow function")?;
+                let has_arguments = param == Sym::ARGUMENTS;
                 (
                     FormalParameterList {
                         parameters: Box::new([FormalParameter::new(
@@ -104,6 +106,9 @@ where
                         )]),
                         is_simple: true,
                         has_duplicates: false,
+                        has_rest: false,
+                        has_expressions: false,
+                        has_arguments,
                     },
                     params_start_position,
                 )
@@ -159,7 +164,7 @@ where
             }
         }
 
-        Ok(ArrowFunctionDecl::new(params.parameters, body))
+        Ok(ArrowFunctionDecl::new(params, body))
     }
 }
 

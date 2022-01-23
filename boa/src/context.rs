@@ -14,7 +14,7 @@ use crate::{
     property::{Attribute, PropertyDescriptor, PropertyKey},
     realm::Realm,
     syntax::{ast::node::StatementList, parser::ParseError, Parser},
-    vm::{CallFrame, CodeBlock, FinallyReturn, Vm},
+    vm::{CallFrame, CodeBlock, FinallyReturn, GeneratorResumeKind, Vm},
     BoaProfiler, Interner, JsResult, JsValue,
 };
 
@@ -69,6 +69,8 @@ pub struct StandardObjects {
     object: StandardConstructor,
     proxy: StandardConstructor,
     function: StandardConstructor,
+    generator: StandardConstructor,
+    generator_function: StandardConstructor,
     array: StandardConstructor,
     bigint: StandardConstructor,
     number: StandardConstructor,
@@ -107,6 +109,8 @@ impl Default for StandardObjects {
             object: StandardConstructor::default(),
             proxy: StandardConstructor::default(),
             function: StandardConstructor::default(),
+            generator: StandardConstructor::default(),
+            generator_function: StandardConstructor::default(),
             array: StandardConstructor::default(),
             bigint: StandardConstructor::default(),
             number: StandardConstructor::with_prototype(JsObject::from_proto_and_data(
@@ -164,6 +168,16 @@ impl StandardObjects {
     #[inline]
     pub fn function_object(&self) -> &StandardConstructor {
         &self.function
+    }
+
+    #[inline]
+    pub fn generator_object(&self) -> &StandardConstructor {
+        &self.generator
+    }
+
+    #[inline]
+    pub fn generator_function_object(&self) -> &StandardConstructor {
+        &self.generator_function
     }
 
     #[inline]
@@ -420,8 +434,8 @@ impl Default for Context {
             .clone();
         context.typed_array_constructor.constructor = typed_array_constructor_constructor;
         context.typed_array_constructor.prototype = typed_array_constructor_prototype;
-        context.create_intrinsics();
         context.iterator_prototypes = IteratorPrototypes::init(&mut context);
+        context.create_intrinsics();
         context.intrinsic_objects = IntrinsicObjects::init(&mut context);
         context
     }
@@ -939,9 +953,13 @@ impl Context {
             pop_env_on_return: 0,
             param_count: 0,
             arg_count: 0,
+            generator_resume_kind: GeneratorResumeKind::Normal,
         });
 
-        self.run()
+        let result = self.run();
+        self.vm.pop_frame();
+        let (result, _) = result?;
+        Ok(result)
     }
 
     /// Return the cached iterator prototypes.

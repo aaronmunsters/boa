@@ -2,8 +2,9 @@ use crate::{
     syntax::{
         ast::{
             node::{
-                Declaration, DeclarationList, FormalParameter, FunctionExpr, Identifier,
-                MethodDefinitionKind, Object, PropertyDefinition,
+                AsyncFunctionExpr, AsyncGeneratorExpr, Declaration, DeclarationList,
+                FormalParameter, FunctionExpr, Identifier, MethodDefinition, Object,
+                PropertyDefinition,
             },
             Const,
         },
@@ -48,9 +49,8 @@ fn check_object_short_function() {
     let object_properties = vec![
         PropertyDefinition::property(interner.get_or_intern_static("a"), Const::from(true)),
         PropertyDefinition::method_definition(
-            MethodDefinitionKind::Ordinary,
+            MethodDefinition::Ordinary(FunctionExpr::new(None, vec![], vec![])),
             interner.get_or_intern_static("b"),
-            FunctionExpr::new(None, vec![], vec![]),
         ),
     ];
 
@@ -80,16 +80,15 @@ fn check_object_short_function_arguments() {
     let object_properties = vec![
         PropertyDefinition::property(interner.get_or_intern_static("a"), Const::from(true)),
         PropertyDefinition::method_definition(
-            MethodDefinitionKind::Ordinary,
-            interner.get_or_intern_static("b"),
-            FunctionExpr::new(
+            MethodDefinition::Ordinary(FunctionExpr::new(
                 None,
                 vec![FormalParameter::new(
                     Declaration::new_with_identifier(interner.get_or_intern_static("test"), None),
                     false,
                 )],
                 vec![],
-            ),
+            )),
+            interner.get_or_intern_static("b"),
         ),
     ];
 
@@ -118,9 +117,8 @@ fn check_object_getter() {
     let object_properties = vec![
         PropertyDefinition::property(interner.get_or_intern_static("a"), Const::from(true)),
         PropertyDefinition::method_definition(
-            MethodDefinitionKind::Get,
+            MethodDefinition::Get(FunctionExpr::new(None, vec![], vec![])),
             interner.get_or_intern_static("b"),
-            FunctionExpr::new(None, vec![], vec![]),
         ),
     ];
 
@@ -149,16 +147,15 @@ fn check_object_setter() {
     let object_properties = vec![
         PropertyDefinition::property(interner.get_or_intern_static("a"), Const::from(true)),
         PropertyDefinition::method_definition(
-            MethodDefinitionKind::Set,
-            interner.get_or_intern_static("b"),
-            FunctionExpr::new(
+            MethodDefinition::Set(FunctionExpr::new(
                 None,
                 vec![FormalParameter::new(
                     Declaration::new_with_identifier(interner.get_or_intern_static("test"), None),
                     false,
                 )],
                 vec![],
-            ),
+            )),
+            interner.get_or_intern_static("b"),
         ),
     ];
 
@@ -185,9 +182,8 @@ fn check_object_short_function_get() {
     let mut interner = Interner::default();
 
     let object_properties = vec![PropertyDefinition::method_definition(
-        MethodDefinitionKind::Ordinary,
+        MethodDefinition::Ordinary(FunctionExpr::new(None, vec![], vec![])),
         interner.get_or_intern_static("get"),
-        FunctionExpr::new(None, vec![], vec![]),
     )];
 
     check_parser(
@@ -212,9 +208,8 @@ fn check_object_short_function_set() {
     let mut interner = Interner::default();
 
     let object_properties = vec![PropertyDefinition::method_definition(
-        MethodDefinitionKind::Ordinary,
+        MethodDefinition::Ordinary(FunctionExpr::new(None, vec![], vec![])),
         interner.get_or_intern_static("set"),
-        FunctionExpr::new(None, vec![], vec![]),
     )];
 
     check_parser(
@@ -348,9 +343,8 @@ fn check_async_method() {
     let mut interner = Interner::default();
 
     let object_properties = vec![PropertyDefinition::method_definition(
-        MethodDefinitionKind::Async,
+        MethodDefinition::Async(AsyncFunctionExpr::new(None, vec![], vec![])),
         interner.get_or_intern_static("dive"),
-        FunctionExpr::new(None, vec![], vec![]),
     )];
 
     check_parser(
@@ -375,9 +369,8 @@ fn check_async_generator_method() {
     let mut interner = Interner::default();
 
     let object_properties = vec![PropertyDefinition::method_definition(
-        MethodDefinitionKind::AsyncGenerator,
+        MethodDefinition::AsyncGenerator(AsyncGeneratorExpr::new(None, vec![], vec![])),
         interner.get_or_intern_static("vroom"),
-        FunctionExpr::new(None, vec![], vec![]),
     )];
 
     check_parser(

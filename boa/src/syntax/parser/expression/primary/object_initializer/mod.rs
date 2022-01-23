@@ -14,7 +14,10 @@ use boa_interner::Sym;
 use crate::{
     syntax::{
         ast::{
-            node::{self, FunctionExpr, Identifier, MethodDefinitionKind, Node, Object},
+            node::{
+                self, AsyncFunctionExpr, AsyncGeneratorExpr, FunctionExpr, GeneratorExpr,
+                Identifier, MethodDefinition, Node, Object,
+            },
             Keyword, Punctuator,
         },
         lexer::{Error as LexError, Position, TokenKind},
@@ -282,9 +285,8 @@ where
                 }
 
                 return Ok(node::PropertyDefinition::method_definition(
-                    MethodDefinitionKind::AsyncGenerator,
+                    MethodDefinition::AsyncGenerator(AsyncGeneratorExpr::new(None, params, body)),
                     property_name,
-                    FunctionExpr::new(None, params.parameters, body),
                 ));
             } else {
                 // MethodDefinition[?Yield, ?Await] -> AsyncMethod[?Yield, ?Await]
@@ -350,9 +352,8 @@ where
                     }
                 }
                 return Ok(node::PropertyDefinition::method_definition(
-                    MethodDefinitionKind::Async,
+                    MethodDefinition::Async(AsyncFunctionExpr::new(None, params, body)),
                     property_name,
-                    FunctionExpr::new(None, params.parameters, body),
                 ));
             }
         }
@@ -432,9 +433,8 @@ where
             }
 
             return Ok(node::PropertyDefinition::method_definition(
-                MethodDefinitionKind::Generator,
+                MethodDefinition::Generator(GeneratorExpr::new(None, params, body)),
                 property_name,
-                FunctionExpr::new(None, params.parameters, body),
             ));
         }
 
@@ -484,9 +484,8 @@ where
                 )?;
 
                 Ok(node::PropertyDefinition::method_definition(
-                    MethodDefinitionKind::Get,
+                    MethodDefinition::Get(FunctionExpr::new(None, vec![], body)),
                     property_name,
-                    FunctionExpr::new(None, [], body),
                 ))
             }
             // MethodDefinition[?Yield, ?Await] -> set ClassElementName[?Yield, ?Await] ( PropertySetParameterList ) { FunctionBody[~Yield, ~Await] }
@@ -538,9 +537,8 @@ where
                 }
 
                 Ok(node::PropertyDefinition::method_definition(
-                    MethodDefinitionKind::Set,
+                    MethodDefinition::Set(FunctionExpr::new(None, params, body)),
                     property_name,
-                    FunctionExpr::new(None, params.parameters, body),
                 ))
             }
             // MethodDefinition[?Yield, ?Await] -> ClassElementName[?Yield, ?Await] ( UniqueFormalParameters[~Yield, ~Await] ) { FunctionBody[~Yield, ~Await] }
@@ -591,9 +589,8 @@ where
                 }
 
                 Ok(node::PropertyDefinition::method_definition(
-                    MethodDefinitionKind::Ordinary,
+                    MethodDefinition::Ordinary(FunctionExpr::new(None, params, body)),
                     property_name,
-                    FunctionExpr::new(None, params.parameters, body),
                 ))
             }
         }

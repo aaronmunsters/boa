@@ -8,7 +8,7 @@ use crate::{
     environment::{
         global_environment_record::GlobalEnvironmentRecord, lexical_environment::LexicalEnvironment,
     },
-    gc::Gc,
+    gc::{Finalize, Gc, Trace},
     object::{JsObject, ObjectData},
     BoaProfiler,
 };
@@ -16,7 +16,7 @@ use crate::{
 /// Representation of a Realm.
 ///
 /// In the specification these are called Realm Records.
-#[derive(Debug)]
+#[derive(Clone, Debug, Finalize, Trace)]
 pub struct Realm {
     pub global_object: JsObject,
     pub global_env: Gc<GlobalEnvironmentRecord>,

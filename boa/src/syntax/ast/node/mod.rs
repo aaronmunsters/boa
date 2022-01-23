@@ -346,6 +346,36 @@ where
     buf
 }
 
+/// `FormalParameterList` is a list of `FormalParameter`s that describes the parameters of a function.
+///
+/// More information:
+///  - [ECMAScript reference][spec]
+///
+/// [spec]: https://tc39.es/ecma262/#prod-FormalParameterList
+#[cfg_attr(feature = "deser", derive(Serialize, Deserialize))]
+#[derive(Clone, Debug, PartialEq, Trace, Finalize)]
+pub struct FormalParameterList {
+    pub(crate) parameters: Box<[FormalParameter]>,
+    pub(crate) is_simple: bool,
+    pub(crate) has_duplicates: bool,
+    pub(crate) has_rest: bool,
+    pub(crate) has_expressions: bool,
+    pub(crate) has_arguments: bool,
+}
+
+impl From<Vec<FormalParameter>> for FormalParameterList {
+    fn from(parameters: Vec<FormalParameter>) -> Self {
+        Self {
+            parameters: parameters.into_boxed_slice(),
+            is_simple: true,
+            has_duplicates: false,
+            has_rest: false,
+            has_expressions: false,
+            has_arguments: false,
+        }
+    }
+}
+
 /// "Formal parameter" is a fancy way of saying "function parameter".
 ///
 /// In the declaration of a function, the parameters must be identifiers,
@@ -468,7 +498,7 @@ pub enum PropertyDefinition {
     ///
     /// [spec]: https://tc39.es/ecma262/#prod-MethodDefinition
     /// [mdn]: https://developer.mozilla.org/en-US/docs/Web/JavaScript/Reference/Operators/Object_initializer#Method_definitions
-    MethodDefinition(MethodDefinitionKind, PropertyName, FunctionExpr),
+    MethodDefinition(MethodDefinition, PropertyName),
 
     /// The Rest/Spread Properties for ECMAScript proposal (stage 4) adds spread properties to object literals.
     /// It copies own enumerable properties from a provided object onto a new object.
@@ -503,11 +533,11 @@ impl PropertyDefinition {
     }
 
     /// Creates a `MethodDefinition`.
-    pub fn method_definition<N>(kind: MethodDefinitionKind, name: N, body: FunctionExpr) -> Self
+    pub fn method_definition<N>(kind: MethodDefinition, name: N) -> Self
     where
         N: Into<PropertyName>,
     {
-        Self::MethodDefinition(kind, name.into(), body)
+        Self::MethodDefinition(kind, name.into())
     }
 
     /// Creates a `SpreadObject`.
@@ -519,7 +549,7 @@ impl PropertyDefinition {
     }
 }
 
-/// Method definition kinds.
+/// Method definition.
 ///
 /// Starting with ECMAScript 2015, a shorter syntax for method definitions on objects initializers is introduced.
 /// It is a shorthand for a function assigned to the method's name.
@@ -531,8 +561,8 @@ impl PropertyDefinition {
 /// [spec]: https://tc39.es/ecma262/#prod-MethodDefinition
 /// [mdn]: https://developer.mozilla.org/en-US/docs/Web/JavaScript/Reference/Functions/Method_definitions
 #[cfg_attr(feature = "deser", derive(Serialize, Deserialize))]
-#[derive(Clone, Debug, PartialEq, Copy, Finalize)]
-pub enum MethodDefinitionKind {
+#[derive(Clone, Debug, PartialEq, Finalize, Trace)]
+pub enum MethodDefinition {
     /// The `get` syntax binds an object property to a function that will be called when that property is looked up.
     ///
     /// Sometimes it is desirable to allow access to a property that returns a dynamically computed value,
@@ -548,7 +578,7 @@ pub enum MethodDefinitionKind {
     ///
     /// [spec]: https://tc39.es/ecma262/#prod-MethodDefinition
     /// [mdn]: https://developer.mozilla.org/en-US/docs/Web/JavaScript/Reference/Functions/get
-    Get,
+    Get(FunctionExpr),
 
     /// The `set` syntax binds an object property to a function to be called when there is an attempt to set that property.
     ///
@@ -562,7 +592,7 @@ pub enum MethodDefinitionKind {
     ///
     /// [spec]: https://tc39.es/ecma262/#prod-MethodDefinition
     /// [mdn]: https://developer.mozilla.org/en-US/docs/Web/JavaScript/Reference/Functions/set
-    Set,
+    Set(FunctionExpr),
 
     /// Starting with ECMAScript 2015, you are able to define own methods in a shorter syntax, similar to the getters and setters.
     ///
@@ -572,7 +602,7 @@ pub enum MethodDefinitionKind {
     ///
     /// [spec]: https://tc39.es/ecma262/#prod-MethodDefinition
     /// [mdn]: https://developer.mozilla.org/en-US/docs/Web/JavaScript/Reference/Functions#Method_definition_syntax
-    Ordinary,
+    Ordinary(FunctionExpr),
 
     /// Starting with ECMAScript 2015, you are able to define own methods in a shorter syntax, similar to the getters and setters.
     ///
@@ -582,7 +612,7 @@ pub enum MethodDefinitionKind {
     ///
     /// [spec]: https://tc39.es/ecma262/#prod-MethodDefinition
     /// [mdn]: https://developer.mozilla.org/en-US/docs/Web/JavaScript/Reference/Functions/Method_definitions#generator_methods
-    Generator,
+    Generator(GeneratorExpr),
 
     /// Async generators can be used to define a method
     ///
@@ -592,7 +622,7 @@ pub enum MethodDefinitionKind {
     ///
     /// [spec]: https://tc39.es/ecma262/#prod-AsyncGeneratorMethod
     /// [mdn]: https://developer.mozilla.org/en-US/docs/Web/JavaScript/Reference/Functions/Method_definitions#async_generator_methods
-    AsyncGenerator,
+    AsyncGenerator(AsyncGeneratorExpr),
 
     /// Async function can be used to define a method
     ///
@@ -602,11 +632,7 @@ pub enum MethodDefinitionKind {
     ///
     /// [spec]: https://tc39.es/ecma262/#prod-AsyncMethod
     /// [mdn]: https://developer.mozilla.org/en-US/docs/Web/JavaScript/Reference/Functions/Method_definitions#async_methods
-    Async,
-}
-
-unsafe impl Trace for MethodDefinitionKind {
-    empty_trace!();
+    Async(AsyncFunctionExpr),
 }
 
 /// PropertyName can be either a literal or computed.
