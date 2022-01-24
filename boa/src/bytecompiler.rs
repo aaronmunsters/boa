@@ -741,10 +741,11 @@ impl<'b> ByteCompiler<'b> {
                                 },
                                 MethodDefinition::Generator(expr) => match name {
                                     PropertyName::Literal(name) => {
-                                        self.emit_opcode(Opcode::PushUndefined);
+                                        self.function(&expr.clone().into(), true);
                                         self.emit_opcode(Opcode::Swap);
-                                        let name = self.interner.resolve_expect(*name);
-                                        let index = self.get_or_insert_name(name);
+                                        let index = self.get_or_insert_name(
+                                            self.interner.resolve_expect(*name),
+                                        );
                                         self.emit(Opcode::DefineOwnPropertyByName, &[index]);
                                     }
                                     PropertyName::Computed(name_node) => {
