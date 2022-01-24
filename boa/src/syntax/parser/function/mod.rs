@@ -77,20 +77,20 @@ where
         let mut params = Vec::new();
         let mut is_simple = true;
         let mut has_duplicates = false;
-        let mut has_rest = false;
+        let mut has_rest_parameter = false;
         let mut has_expressions = false;
         let mut has_arguments = false;
 
         let next_token = cursor.peek(0, interner)?.ok_or(ParseError::AbruptEnd)?;
         if next_token.kind() == &TokenKind::Punctuator(Punctuator::CloseParen) {
-            return Ok(FormalParameterList {
-                parameters: params.into_boxed_slice(),
+            return Ok(FormalParameterList::new(
+                params.into_boxed_slice(),
                 is_simple,
                 has_duplicates,
-                has_rest,
+                has_rest_parameter,
                 has_expressions,
                 has_arguments,
-            });
+            ));
         }
         let start_position = next_token.span().start();
 
@@ -102,7 +102,7 @@ where
             let next_param = match cursor.peek(0, interner)? {
                 Some(tok) if tok.kind() == &TokenKind::Punctuator(Punctuator::Spread) => {
                     rest_param = true;
-                    has_rest = true;
+                    has_rest_parameter = true;
                     FunctionRestParameter::new(self.allow_yield, self.allow_await)
                         .parse(cursor, interner)?
                 }
@@ -164,14 +164,14 @@ where
             )));
         }
 
-        Ok(FormalParameterList {
-            parameters: params.into_boxed_slice(),
+        Ok(FormalParameterList::new(
+            params.into_boxed_slice(),
             is_simple,
             has_duplicates,
-            has_rest,
+            has_rest_parameter,
             has_expressions,
             has_arguments,
-        })
+        ))
     }
 }
 

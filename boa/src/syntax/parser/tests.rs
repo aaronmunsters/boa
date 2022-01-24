@@ -5,8 +5,9 @@ use crate::{
     syntax::ast::{
         node::{
             field::GetConstField, ArrowFunctionDecl, Assign, BinOp, Call, Declaration,
-            DeclarationList, FormalParameter, FunctionDecl, Identifier, If, New, Node, Object,
-            PropertyDefinition, Return, StatementList, UnaryOp,
+            DeclarationList, FormalParameter, FormalParameterList, FormalParameterListFlags,
+            FunctionDecl, Identifier, If, New, Node, Object, PropertyDefinition, Return,
+            StatementList, UnaryOp,
         },
         op::{self, CompOp, LogOp, NumOp},
         Const,
@@ -90,7 +91,7 @@ fn hoisting() {
         vec![
             FunctionDecl::new(
                 hello,
-                vec![],
+                FormalParameterList::default(),
                 vec![Return::new(Const::from(10), None).into()],
             )
             .into(),
@@ -407,10 +408,14 @@ fn spread_in_arrow_function() {
     check_parser(
         s,
         vec![ArrowFunctionDecl::new(
-            vec![FormalParameter::new(
-                Declaration::new_with_identifier(b, None),
-                true,
-            )],
+            FormalParameterList {
+                parameters: Box::new([FormalParameter::new(
+                    Declaration::new_with_identifier(b, None),
+                    true,
+                )]),
+                flags: FormalParameterListFlags::empty()
+                    .union(FormalParameterListFlags::HAS_REST_PARAMETER),
+            },
             vec![Identifier::from(b).into()],
         )
         .into()],

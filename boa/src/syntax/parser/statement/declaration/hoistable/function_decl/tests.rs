@@ -1,5 +1,8 @@
 use crate::{
-    syntax::{ast::node::FunctionDecl, parser::tests::check_parser},
+    syntax::{
+        ast::node::{FormalParameterList, FunctionDecl},
+        parser::tests::check_parser,
+    },
     Interner,
 };
 
@@ -9,7 +12,12 @@ fn function_declaration() {
     let mut interner = Interner::default();
     check_parser(
         "function hello() {}",
-        vec![FunctionDecl::new(interner.get_or_intern_static("hello"), vec![], vec![]).into()],
+        vec![FunctionDecl::new(
+            interner.get_or_intern_static("hello"),
+            FormalParameterList::default(),
+            vec![],
+        )
+        .into()],
         &mut interner,
     );
 }
@@ -20,14 +28,24 @@ fn function_declaration_keywords() {
     let mut interner = Interner::default();
     check_parser(
         "function yield() {}",
-        vec![FunctionDecl::new(interner.get_or_intern_static("yield"), vec![], vec![]).into()],
+        vec![FunctionDecl::new(
+            interner.get_or_intern_static("yield"),
+            FormalParameterList::default(),
+            vec![],
+        )
+        .into()],
         &mut interner,
     );
 
     let mut interner = Interner::default();
     check_parser(
         "function await() {}",
-        vec![FunctionDecl::new(interner.get_or_intern_static("await"), vec![], vec![]).into()],
+        vec![FunctionDecl::new(
+            interner.get_or_intern_static("await"),
+            FormalParameterList::default(),
+            vec![],
+        )
+        .into()],
         &mut interner,
     );
 }

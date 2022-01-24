@@ -104,7 +104,7 @@ impl CodeBlock {
             strict,
             constructor,
             this_mode: ThisMode::Global,
-            params: Vec::new().into(),
+            params: Default::default(),
             lexical_name_argument: false,
         }
     }
@@ -607,19 +607,17 @@ impl JsObject {
                 // Push the environment first so that it will be used by default parameters
                 context.push_environment(local_env.clone());
 
-                let mut arguments_in_parameter_names = false;
-                let mut is_simple_parameter_list = true;
-                let mut has_parameter_expressions = false;
-
-                let arguments = Sym::ARGUMENTS;
-                for param in code.params.parameters.iter() {
-                    has_parameter_expressions = has_parameter_expressions || param.init().is_some();
-                    arguments_in_parameter_names =
-                        arguments_in_parameter_names || param.names().contains(&arguments);
-                    is_simple_parameter_list = is_simple_parameter_list
-                        && !param.is_rest_param()
-                        && param.is_identifier()
-                        && param.init().is_none()
+                for param in code.params.parameters.as_ref() {
+                    for name in param.names() {
+                        local_env
+                            .create_mutable_binding(name, false, true, context)
+                            .expect("Failed to create argument binding");
+                        if code.params.has_duplicates() {
+                            local_env
+                                .initialize_binding(name, JsValue::Undefined, context)
+                                .expect("Failed to initialize argument binding");
+                        }
+                    }
                 }
 
                 // An arguments object is added when all of the following conditions are met
@@ -629,12 +627,12 @@ impl JsObject {
                 //
                 // https://tc39.es/ecma262/#sec-functiondeclarationinstantiation
                 if !lexical_this_mode
-                    && !code.params.has_arguments
-                    && (code.params.has_expressions || !code.lexical_name_argument)
+                    && !code.params.has_arguments()
+                    && (code.params.has_expressions() || !code.lexical_name_argument)
                 {
                     // Add arguments object
                     let arguments_obj =
-                        if context.strict() || code.strict || !is_simple_parameter_list {
+                        if context.strict() || code.strict || !code.params.is_simple() {
                             Arguments::create_unmapped_arguments_object(args, context)
                         } else {
                             Arguments::create_mapped_arguments_object(
@@ -645,8 +643,8 @@ impl JsObject {
                                 context,
                             )
                         };
-                    local_env.create_mutable_binding(arguments, false, true, context)?;
-                    local_env.initialize_binding(arguments, arguments_obj.into(), context)?;
+                    local_env.create_mutable_binding(Sym::ARGUMENTS, false, true, context)?;
+                    local_env.initialize_binding(Sym::ARGUMENTS, arguments_obj.into(), context)?;
                 }
 
                 let arg_count = args.len();
@@ -679,7 +677,7 @@ impl JsObject {
                         .into()
                 };
 
-                let has_expressions = code.params.has_expressions;
+                let has_expressions = code.params.has_expressions();
 
                 context.vm.push_frame(CallFrame {
                     prev: None,
@@ -751,22 +749,22 @@ impl JsObject {
                 //
                 // https://tc39.es/ecma262/#sec-functiondeclarationinstantiation
                 if !lexical_this_mode
-                    && !code.params.has_arguments
-                    && (code.params.has_expressions || !code.lexical_name_argument)
+                    && !code.params.has_arguments()
+                    && (code.params.has_expressions() || !code.lexical_name_argument)
                 {
                     // Add arguments object
-                    let arguments_obj = if context.strict() || code.strict || !code.params.is_simple
-                    {
-                        Arguments::create_unmapped_arguments_object(args, context)
-                    } else {
-                        Arguments::create_mapped_arguments_object(
-                            &this_function_object,
-                            &code.params.parameters,
-                            args,
-                            &local_env,
-                            context,
-                        )
-                    };
+                    let arguments_obj =
+                        if context.strict() || code.strict || !code.params.is_simple() {
+                            Arguments::create_unmapped_arguments_object(args, context)
+                        } else {
+                            Arguments::create_mapped_arguments_object(
+                                &this_function_object,
+                                &code.params.parameters,
+                                args,
+                                &local_env,
+                                context,
+                            )
+                        };
                     local_env.create_mutable_binding(Sym::ARGUMENTS, false, true, context)?;
                     local_env.initialize_binding(Sym::ARGUMENTS, arguments_obj.into(), context)?;
                 }
@@ -956,12 +954,12 @@ impl JsObject {
                 //
                 // https://tc39.es/ecma262/#sec-functiondeclarationinstantiation
                 if !lexical_this_mode
-                    && !code.params.has_arguments
-                    && (code.params.has_expressions || !code.lexical_name_argument)
+                    && !code.params.has_arguments()
+                    && (code.params.has_expressions() || !code.lexical_name_argument)
                 {
                     // Add arguments object
                     let arguments_obj =
-                        if context.strict() || code.strict || !is_simple_parameter_list {
+                        if context.strict() || code.strict || !code.params.is_simple() {
                             Arguments::create_unmapped_arguments_object(args, context)
                         } else {
                             Arguments::create_mapped_arguments_object(
@@ -1006,7 +1004,7 @@ impl JsObject {
                         .into()
                 };
 
-                let has_expressions = code.params.has_expressions;
+                let has_expressions = code.params.has_expressions();
 
                 context.vm.push_frame(CallFrame {
                     prev: None,

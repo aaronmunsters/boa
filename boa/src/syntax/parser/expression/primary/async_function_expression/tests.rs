@@ -1,7 +1,10 @@
 use crate::{
     syntax::{
         ast::{
-            node::{AsyncFunctionExpr, Declaration, DeclarationList, Return, StatementList},
+            node::{
+                AsyncFunctionExpr, Declaration, DeclarationList, FormalParameterList, Return,
+                StatementList,
+            },
             Const,
         },
         parser::tests::check_parser,
@@ -25,7 +28,7 @@ fn check_async_expression() {
                 Some(
                     AsyncFunctionExpr::new::<_, _, StatementList>(
                         None,
-                        vec![],
+                        FormalParameterList::default(),
                         vec![Return::new::<_, _, Option<Sym>>(Const::from(1), None).into()].into(),
                     )
                     .into(),
@@ -54,14 +57,14 @@ fn check_nested_async_expression() {
                 Some(
                     AsyncFunctionExpr::new::<_, _, StatementList>(
                         None,
-                        vec![],
+                        FormalParameterList::default(),
                         vec![DeclarationList::Const(
                             vec![Declaration::new_with_identifier(
                                 interner.get_or_intern_static("b"),
                                 Some(
                                     AsyncFunctionExpr::new::<_, _, StatementList>(
                                         None,
-                                        vec![],
+                                        FormalParameterList::default(),
                                         vec![Return::new::<_, _, Option<Sym>>(
                                             Const::from(1),
                                             None,

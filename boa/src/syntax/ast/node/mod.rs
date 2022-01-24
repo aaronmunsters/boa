@@ -50,6 +50,7 @@ pub use self::{
 };
 use super::Const;
 use crate::gc::{empty_trace, Finalize, Trace};
+use bitflags::bitflags;
 use boa_interner::{Interner, Sym, ToInternedString};
 use std::cmp::Ordering;
 
@@ -353,26 +354,80 @@ where
 ///
 /// [spec]: https://tc39.es/ecma262/#prod-FormalParameterList
 #[cfg_attr(feature = "deser", derive(Serialize, Deserialize))]
-#[derive(Clone, Debug, PartialEq, Trace, Finalize)]
+#[derive(Clone, Debug, Default, PartialEq, Trace, Finalize)]
 pub struct FormalParameterList {
     pub(crate) parameters: Box<[FormalParameter]>,
-    pub(crate) is_simple: bool,
-    pub(crate) has_duplicates: bool,
-    pub(crate) has_rest: bool,
-    pub(crate) has_expressions: bool,
-    pub(crate) has_arguments: bool,
+    #[unsafe_ignore_trace]
+    pub(crate) flags: FormalParameterListFlags,
 }
 
-impl From<Vec<FormalParameter>> for FormalParameterList {
-    fn from(parameters: Vec<FormalParameter>) -> Self {
-        Self {
-            parameters: parameters.into_boxed_slice(),
-            is_simple: true,
-            has_duplicates: false,
-            has_rest: false,
-            has_expressions: false,
-            has_arguments: false,
+impl FormalParameterList {
+    pub(crate) fn new(
+        parameters: Box<[FormalParameter]>,
+        is_simple: bool,
+        has_duplicates: bool,
+        has_rest_parameter: bool,
+        has_expressions: bool,
+        has_arguments: bool,
+    ) -> Self {
+        let mut flags = FormalParameterListFlags::empty();
+        if is_simple {
+            flags |= FormalParameterListFlags::IS_SIMPLE;
         }
+        if has_duplicates {
+            flags |= FormalParameterListFlags::HAS_DUPLICATES;
+        }
+        if has_rest_parameter {
+            flags |= FormalParameterListFlags::HAS_REST_PARAMETER;
+        }
+        if has_expressions {
+            flags |= FormalParameterListFlags::HAS_EXPRESSIONS;
+        }
+        if has_arguments {
+            flags |= FormalParameterListFlags::HAS_ARGUMENTS;
+        }
+        Self { parameters, flags }
+    }
+
+    pub(crate) fn is_simple(&self) -> bool {
+        self.flags.contains(FormalParameterListFlags::IS_SIMPLE)
+    }
+
+    pub(crate) fn has_duplicates(&self) -> bool {
+        self.flags
+            .contains(FormalParameterListFlags::HAS_DUPLICATES)
+    }
+
+    pub(crate) fn has_rest_parameter(&self) -> bool {
+        self.flags
+            .contains(FormalParameterListFlags::HAS_REST_PARAMETER)
+    }
+
+    pub(crate) fn has_expressions(&self) -> bool {
+        self.flags
+            .contains(FormalParameterListFlags::HAS_EXPRESSIONS)
+    }
+
+    pub(crate) fn has_arguments(&self) -> bool {
+        self.flags.contains(FormalParameterListFlags::HAS_ARGUMENTS)
+    }
+}
+
+bitflags! {
+    /// Flags for a FormalParameterList.
+    #[cfg_attr(feature = "deser", derive(Serialize, Deserialize))]
+    pub(crate) struct FormalParameterListFlags: u8 {
+        const IS_SIMPLE = 0b0000_0001;
+        const HAS_DUPLICATES = 0b0000_0010;
+        const HAS_REST_PARAMETER = 0b0000_0100;
+        const HAS_EXPRESSIONS = 0b0000_1000;
+        const HAS_ARGUMENTS = 0b0001_0000;
+    }
+}
+
+impl Default for FormalParameterListFlags {
+    fn default() -> Self {
+        FormalParameterListFlags::empty().union(FormalParameterListFlags::IS_SIMPLE)
     }
 }
 

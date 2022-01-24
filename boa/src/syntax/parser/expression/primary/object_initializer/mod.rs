@@ -15,8 +15,8 @@ use crate::{
     syntax::{
         ast::{
             node::{
-                self, AsyncFunctionExpr, AsyncGeneratorExpr, FunctionExpr, GeneratorExpr,
-                Identifier, MethodDefinition, Node, Object,
+                self, AsyncFunctionExpr, AsyncGeneratorExpr, FormalParameterList, FunctionExpr,
+                GeneratorExpr, Identifier, MethodDefinition, Node, Object,
             },
             Keyword, Punctuator,
         },
@@ -232,7 +232,7 @@ where
 
                 // Early Error: UniqueFormalParameters : FormalParameters
                 // NOTE: does not appear to formally be in ECMAScript specs for method
-                if params.has_duplicates {
+                if params.has_duplicates() {
                     return Err(ParseError::lex(LexError::Syntax(
                         "Duplicate parameter name not allowed in this context".into(),
                         params_start_position,
@@ -253,7 +253,7 @@ where
 
                 // Early Error: It is a Syntax Error if FunctionBodyContainsUseStrict of FunctionBody is true
                 // and IsSimpleParameterList of UniqueFormalParameters is false.
-                if body.strict() && !params.is_simple {
+                if body.strict() && !params.is_simple() {
                     return Err(ParseError::lex(LexError::Syntax(
                         "Illegal 'use strict' directive in function with non-simple parameter list"
                             .into(),
@@ -300,7 +300,7 @@ where
 
                 // Early Error: UniqueFormalParameters : FormalParameters
                 // NOTE: does not appear to be in ECMAScript specs
-                if params.has_duplicates {
+                if params.has_duplicates() {
                     return Err(ParseError::lex(LexError::Syntax(
                         "Duplicate parameter name not allowed in this context".into(),
                         params_start_position,
@@ -321,7 +321,7 @@ where
 
                 // Early Error: It is a Syntax Error if FunctionBodyContainsUseStrict of FunctionBody is true
                 // and IsSimpleParameterList of UniqueFormalParameters is false.
-                if body.strict() && !params.is_simple {
+                if body.strict() && !params.is_simple() {
                     return Err(ParseError::lex(LexError::Syntax(
                         "Illegal 'use strict' directive in function with non-simple parameter list"
                             .into(),
@@ -380,7 +380,7 @@ where
 
             // Early Error: UniqueFormalParameters : FormalParameters
             // NOTE: does not appear to be in ECMAScript specs for GeneratorMethod
-            if params.has_duplicates {
+            if params.has_duplicates() {
                 return Err(ParseError::lex(LexError::Syntax(
                     "Duplicate parameter name not allowed in this context".into(),
                     params_start_position,
@@ -401,7 +401,7 @@ where
 
             // Early Error: It is a Syntax Error if FunctionBodyContainsUseStrict of FunctionBody is true
             // and IsSimpleParameterList of UniqueFormalParameters is false.
-            if body.strict() && !params.is_simple {
+            if body.strict() && !params.is_simple() {
                 return Err(ParseError::lex(LexError::Syntax(
                     "Illegal 'use strict' directive in function with non-simple parameter list"
                         .into(),
@@ -484,7 +484,11 @@ where
                 )?;
 
                 Ok(node::PropertyDefinition::method_definition(
-                    MethodDefinition::Get(FunctionExpr::new(None, vec![], body)),
+                    MethodDefinition::Get(FunctionExpr::new(
+                        None,
+                        FormalParameterList::default(),
+                        body,
+                    )),
                     property_name,
                 ))
             }
@@ -528,7 +532,7 @@ where
 
                 // Early Error: It is a Syntax Error if FunctionBodyContainsUseStrict of FunctionBody is true
                 // and IsSimpleParameterList of PropertySetParameterList is false.
-                if body.strict() && !params.is_simple {
+                if body.strict() && !params.is_simple() {
                     return Err(ParseError::lex(LexError::Syntax(
                         "Illegal 'use strict' directive in function with non-simple parameter list"
                             .into(),
@@ -559,7 +563,7 @@ where
                 )?;
 
                 // Early Error: UniqueFormalParameters : FormalParameters
-                if params.has_duplicates {
+                if params.has_duplicates() {
                     return Err(ParseError::lex(LexError::Syntax(
                         "Duplicate parameter name not allowed in this context".into(),
                         params_start_position,
@@ -580,7 +584,7 @@ where
 
                 // Early Error: It is a Syntax Error if FunctionBodyContainsUseStrict of FunctionBody is true
                 // and IsSimpleParameterList of UniqueFormalParameters is false.
-                if body.strict() && !params.is_simple {
+                if body.strict() && !params.is_simple() {
                     return Err(ParseError::lex(LexError::Syntax(
                         "Illegal 'use strict' directive in function with non-simple parameter list"
                             .into(),

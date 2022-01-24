@@ -1550,7 +1550,7 @@ impl<'b> ByteCompiler<'b> {
             interner: self.interner,
         };
 
-        let opcode = if parameters.has_duplicates {
+        let opcode = if parameters.has_duplicates() {
             Opcode::SetName
         } else {
             Opcode::DefInitArg
@@ -1577,11 +1577,11 @@ impl<'b> ByteCompiler<'b> {
             }
         }
 
-        if !parameters.has_rest {
+        if !parameters.has_rest_parameter() {
             compiler.emit_opcode(Opcode::RestParameterPop);
         }
 
-        if parameters.has_expressions {
+        if parameters.has_expressions() {
             compiler.emit_opcode(Opcode::PushFunctionEnvironment)
         }
 

@@ -1,7 +1,10 @@
 use crate::{
     syntax::{
         ast::{
-            node::{AsyncGeneratorExpr, Declaration, DeclarationList, Return, StatementList},
+            node::{
+                AsyncGeneratorExpr, Declaration, DeclarationList, FormalParameterList, Return,
+                StatementList,
+            },
             Const,
         },
         parser::tests::check_parser,
@@ -26,7 +29,7 @@ fn check_async_generator_expr() {
                 Some(
                     AsyncGeneratorExpr::new::<_, _, StatementList>(
                         None,
-                        vec![],
+                        FormalParameterList::default(),
                         vec![Return::new::<_, _, Option<Sym>>(Const::from(1), None).into()].into(),
                     )
                     .into(),
@@ -55,14 +58,14 @@ fn check_nested_async_generator_expr() {
                 Some(
                     AsyncGeneratorExpr::new::<_, _, StatementList>(
                         None,
-                        vec![],
+                        FormalParameterList::default(),
                         vec![DeclarationList::Const(
                             vec![Declaration::new_with_identifier(
                                 interner.get_or_intern_static("b"),
                                 Some(
                                     AsyncGeneratorExpr::new::<_, _, StatementList>(
                                         None,
-                                        vec![],
+                                        FormalParameterList::default(),
                                         vec![Return::new::<_, _, Option<Sym>>(
                                             Const::from(1),
                                             None,

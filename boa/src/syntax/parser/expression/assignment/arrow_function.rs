@@ -99,17 +99,17 @@ where
                     .context("arrow function")?;
                 let has_arguments = param == Sym::ARGUMENTS;
                 (
-                    FormalParameterList {
-                        parameters: Box::new([FormalParameter::new(
+                    FormalParameterList::new(
+                        Box::new([FormalParameter::new(
                             Declaration::new_with_identifier(param, None),
                             false,
                         )]),
-                        is_simple: true,
-                        has_duplicates: false,
-                        has_rest: false,
-                        has_expressions: false,
+                        true,
+                        false,
+                        false,
+                        false,
                         has_arguments,
-                    },
+                    ),
                     params_start_position,
                 )
             };
@@ -124,7 +124,7 @@ where
         let body = ConciseBody::new(self.allow_in).parse(cursor, interner)?;
 
         // Early Error: ArrowFormalParameters are UniqueFormalParameters.
-        if params.has_duplicates {
+        if params.has_duplicates() {
             return Err(ParseError::lex(LexError::Syntax(
                 "Duplicate parameter name not allowed in this context".into(),
                 params_start_position,
@@ -133,7 +133,7 @@ where
 
         // Early Error: It is a Syntax Error if ConciseBodyContainsUseStrict of ConciseBody is true
         // and IsSimpleParameterList of ArrowParameters is false.
-        if body.strict() && !params.is_simple {
+        if body.strict() && !params.is_simple() {
             return Err(ParseError::lex(LexError::Syntax(
                 "Illegal 'use strict' directive in function with non-simple parameter list".into(),
                 params_start_position,
