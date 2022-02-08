@@ -17,6 +17,7 @@ use super::string::is_trimmable_whitespace;
 use super::JsArgs;
 use crate::context::StandardObjects;
 use crate::object::JsObject;
+use crate::value::JsVariant;
 use crate::{
     builtins::{function::make_builtin_fn, BuiltIn},
     object::{internal_methods::get_prototype_from_constructor, ConstructorBuilder, ObjectData},
@@ -209,7 +210,8 @@ impl Number {
         // 1. Let x be ? thisNumberValue(this value).
         let this_num = Self::this_number_value(this, context)?;
         let precision = match args.get(0) {
-            None | Some(JsValue::Undefined) => None,
+            None => None,
+            Some(n) if n.is_undefined() => None,
             // 2. Let f be ? ToIntegerOrInfinity(fractionDigits).
             Some(n) => Some(n.to_integer(context)? as i32),
         };
@@ -966,9 +968,9 @@ impl Number {
         _ctx: &mut Context,
     ) -> JsResult<JsValue> {
         Ok(JsValue::new(if let Some(val) = args.get(0) {
-            match val {
-                JsValue::Integer(_) => true,
-                JsValue::Rational(number) => number.is_finite(),
+            match val.variant() {
+                JsVariant::Rational(number) => number.is_finite(),
+                JsVariant::Integer(_) => true,
                 _ => false,
             }
         } else {
@@ -1015,13 +1017,7 @@ impl Number {
         args: &[JsValue],
         _ctx: &mut Context,
     ) -> JsResult<JsValue> {
-        Ok(JsValue::new(
-            if let Some(&JsValue::Rational(number)) = args.get(0) {
-                number.is_nan()
-            } else {
-                false
-            },
-        ))
+        Ok(JsValue::new(args.get(0).map_or(false, JsValue::is_nan)))
     }
 
     /// `Number.isSafeInteger( number )`
@@ -1044,9 +1040,9 @@ impl Number {
         args: &[JsValue],
         _ctx: &mut Context,
     ) -> JsResult<JsValue> {
-        Ok(JsValue::new(match args.get(0) {
-            Some(JsValue::Integer(_)) => true,
-            Some(JsValue::Rational(number)) if Self::is_float_integer(*number) => {
+        Ok(JsValue::new(match args.get(0).map(JsValue::variant) {
+            Some(JsVariant::Integer(_)) => true,
+            Some(JsVariant::Rational(number)) if Self::is_float_integer(number) => {
                 number.abs() <= Self::MAX_SAFE_INTEGER
             }
             _ => false,
@@ -1061,9 +1057,9 @@ impl Number {
     /// [spec]: https://tc39.es/ecma262/#sec-isinteger
     #[inline]
     pub(crate) fn is_integer(val: &JsValue) -> bool {
-        match val {
-            JsValue::Integer(_) => true,
-            JsValue::Rational(number) => Self::is_float_integer(*number),
+        match val.variant() {
+            JsVariant::Integer(_) => true,
+            JsVariant::Rational(number) => Self::is_float_integer(number),
             _ => false,
         }
     }

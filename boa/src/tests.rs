@@ -796,8 +796,7 @@ mod in_operator {
             foo_val.as_object().and_then(|obj| obj
                 .get("prototype", &mut context)
                 .unwrap()
-                .as_object()
-                .cloned())
+                .as_object())
         );
     }
 }

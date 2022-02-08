@@ -233,7 +233,7 @@ impl Symbol {
     ) -> JsResult<JsValue> {
         // 1. Return ? thisSymbolValue(this value).
         let symbol = Self::this_symbol_value(this, context)?;
-        Ok(JsValue::Symbol(symbol))
+        Ok(JsValue::new(symbol))
     }
 
     /// `get Symbol.prototype.description`

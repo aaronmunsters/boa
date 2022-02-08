@@ -214,7 +214,7 @@ impl Arguments {
                                     captures
                                         .0
                                         .set_mutable_binding(captures.1, value, false, context)
-                                        .map(|_| JsValue::Undefined)
+                                        .map(|_| JsValue::undefined())
                                     // Ok(JsValue::Undefined)
                                 },
                                 (env.clone(), parameter_name),

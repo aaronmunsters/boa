@@ -10,7 +10,7 @@ use crate::{
         lexical_environment::{Environment, VariableScope},
     },
     property::{PropertyDescriptor, PropertyKey},
-    value::Numeric,
+    value::{Numeric, JsVariant},
     vm::{call_frame::CatchAddresses, code_block::Readable},
     BoaProfiler, Context, JsBigInt, JsResult, JsString, JsValue,
 };
@@ -314,7 +314,7 @@ impl Context {
 
                 if !self.has_binding(name)? {
                     self.create_mutable_binding(name, false, VariableScope::Function)?;
-                    self.initialize_binding(name, JsValue::Undefined)?;
+                    self.initialize_binding(name, JsValue::undefined())?;
                 }
             }
             Opcode::DefInitVar => {
@@ -334,7 +334,7 @@ impl Context {
                 let name = self.vm.frame().code.variables[index as usize];
 
                 self.create_mutable_binding(name, false, VariableScope::Block)?;
-                self.initialize_binding(name, JsValue::Undefined)?;
+                self.initialize_binding(name, JsValue::undefined())?;
             }
             Opcode::DefInitLet => {
                 let index = self.vm.read::<u32>();
@@ -366,7 +366,7 @@ impl Context {
                 let value = if self.has_binding(name)? {
                     self.get_binding_value(name)?
                 } else {
-                    JsValue::Undefined
+                    JsValue::undefined()
                 };
                 self.vm.push(value);
             }
@@ -432,7 +432,7 @@ impl Context {
 
                 let value = self.vm.pop();
                 let object = if let Some(object) = value.as_object() {
-                    object.clone()
+                    object
                 } else {
                     value.to_object(self)?
                 };
@@ -447,7 +447,7 @@ impl Context {
                 let object = self.vm.pop();
                 let key = self.vm.pop();
                 let object = if let Some(object) = object.as_object() {
-                    object.clone()
+                    object
                 } else {
                     object.to_object(self)?
                 };
@@ -463,7 +463,7 @@ impl Context {
                 let object = self.vm.pop();
                 let value = self.vm.pop();
                 let object = if let Some(object) = object.as_object() {
-                    object.clone()
+                    object
                 } else {
                     object.to_object(self)?
                 };
@@ -484,7 +484,7 @@ impl Context {
                 let object = self.vm.pop();
                 let value = self.vm.pop();
                 let object = if let Some(object) = object.as_object() {
-                    object.clone()
+                    object
                 } else {
                     object.to_object(self)?
                 };
@@ -508,7 +508,7 @@ impl Context {
                 let key = self.vm.pop();
                 let value = self.vm.pop();
                 let object = if let Some(object) = object.as_object() {
-                    object.clone()
+                    object
                 } else {
                     object.to_object(self)?
                 };
@@ -526,7 +526,7 @@ impl Context {
                 let key = self.vm.pop();
                 let object = self.vm.pop();
                 let object = if let Some(object) = object.as_object() {
-                    object.clone()
+                    object
                 } else {
                     object.to_object(self)?
                 };
@@ -782,8 +782,8 @@ impl Context {
                 let func = self.vm.pop();
                 let mut this = self.vm.pop();
 
-                let object = match func {
-                    JsValue::Object(ref object) if object.is_callable() => object.clone(),
+                let object = match func.variant() {
+                    JsVariant::Object(object) if object.is_callable() => object,
                     _ => return self.throw_type_error("not a callable function"),
                 };
 
@@ -820,8 +820,8 @@ impl Context {
                 }
                 arguments.append(&mut rest_arguments);
 
-                let object = match func {
-                    JsValue::Object(ref object) if object.is_callable() => object.clone(),
+                let object = match func.variant() {
+                    JsVariant::Object(ref object) if object.is_callable() => object.clone(),
                     _ => return self.throw_type_error("not a callable function"),
                 };
 
@@ -910,10 +910,9 @@ impl Context {
                 let this = &self.vm.frame().this;
 
                 let new_env = FunctionEnvironmentRecord::new(
-                    this.clone()
+                    this
                         .as_object()
-                        .expect("this must always be an object")
-                        .clone(),
+                        .expect("this must always be an object"),
                     if is_constructor || !is_lexical {
                         Some(this.clone())
                     } else {
@@ -991,7 +990,7 @@ impl Context {
                 let iterator = self.vm.pop();
                 if !done.as_boolean().unwrap() {
                     let iterator_record = IteratorRecord::new(iterator, next_function);
-                    iterator_record.close(Ok(JsValue::Null), self)?;
+                    iterator_record.close(Ok(JsValue::null()), self)?;
                 }
             }
             Opcode::IteratorToArray => {

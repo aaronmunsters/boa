@@ -27,7 +27,7 @@ use crate::{
     },
     property::{Attribute, PropertyNameKind},
     symbol::WellKnownSymbols,
-    value::{IntegerOrInfinity, JsValue},
+    value::{IntegerOrInfinity, JsValue, JsVariant},
     BoaProfiler, Context, JsResult, JsString,
 };
 use num_traits::{Signed, Zero};
@@ -146,7 +146,7 @@ macro_rules! typed_array {
                     // ii. If firstArgument has a [[TypedArrayName]] internal slot, then
                     if first_argument.is_typed_array() {
                         // 1. Perform ? InitializeTypedArrayFromTypedArray(O, firstArgument).
-                        TypedArray::initialize_from_typed_array(&o, first_argument, context)?;
+                        TypedArray::initialize_from_typed_array(&o, &first_argument, context)?;
                     } else if first_argument.is_array_buffer() {
                         // iii. Else if firstArgument has an [[ArrayBufferData]] internal slot, then
 
@@ -392,7 +392,9 @@ impl TypedArray {
 
         let mapping = match args.get(1) {
             // 3. If mapfn is undefined, let mapping be false.
-            None | Some(JsValue::Undefined) => None,
+            None => None,
+            Some(v) if v.is_undefined() => None,
+
             // 4. Else,
             Some(v) => match v.as_object() {
                 // b. Let mapping be true.
@@ -418,7 +420,7 @@ impl TypedArray {
 
             // b. Let len be the number of elements in values.
             // c. Let targetObj be ? TypedArrayCreate(C, « 𝔽(len) »).
-            let target_obj = Self::create(constructor, &[values.len().into()], context)?;
+            let target_obj = Self::create(&constructor, &[values.len().into()], context)?;
 
             // d. Let k be 0.
             // e. Repeat, while k < len,
@@ -454,7 +456,7 @@ impl TypedArray {
         let len = array_like.length_of_array_like(context)?;
 
         // 10. Let targetObj be ? TypedArrayCreate(C, « 𝔽(len) »).
-        let target_obj = Self::create(constructor, &[len.into()], context)?;
+        let target_obj = Self::create(&constructor, &[len.into()], context)?;
 
         // 11. Let k be 0.
         // 12. Repeat, while k < len,
@@ -500,7 +502,7 @@ impl TypedArray {
         };
 
         // 4. Let newObj be ? TypedArrayCreate(C, « 𝔽(len) »).
-        let new_obj = Self::create(constructor, &[args.len().into()], context)?;
+        let new_obj = Self::create(&constructor, &[args.len().into()], context)?;
 
         // 5. Let k be 0.
         // 6. Repeat, while k < len,
@@ -849,7 +851,7 @@ impl TypedArray {
 
         // 3. Return CreateArrayIterator(O, key+value).
         Ok(ArrayIterator::create_array_iterator(
-            o.clone(),
+            o,
             PropertyNameKind::KeyAndValue,
             context,
         ))
@@ -1060,7 +1062,7 @@ impl TypedArray {
         }
 
         // 9. Let A be ? TypedArraySpeciesCreate(O, « 𝔽(captured) »).
-        let a = Self::species_create(obj, o.typed_array_name(), &[captured.into()], context)?;
+        let a = Self::species_create(&obj, o.typed_array_name(), &[captured.into()], context)?;
 
         // 10. Let n be 0.
         // 11. For each element e of kept, do
@@ -1476,7 +1478,7 @@ impl TypedArray {
 
         // 3. Return CreateArrayIterator(O, key).
         Ok(ArrayIterator::create_array_iterator(
-            o.clone(),
+            o,
             PropertyNameKind::Key,
             context,
         ))
@@ -1619,7 +1621,7 @@ impl TypedArray {
         };
 
         // 5. Let A be ? TypedArraySpeciesCreate(O, « 𝔽(len) »).
-        let a = Self::species_create(obj, o.typed_array_name(), &[len.into()], context)?;
+        let a = Self::species_create(&obj, o.typed_array_name(), &[len.into()], context)?;
 
         // 6. Let k be 0.
         // 7. Repeat, while k < len,
@@ -1887,16 +1889,16 @@ impl TypedArray {
         }
 
         let source = args.get_or_undefined(0);
-        match source {
+        match source.variant() {
             // 6. If source is an Object that has a [[TypedArrayName]] internal slot, then
-            JsValue::Object(source) if source.is_typed_array() => {
+            JsVariant::Object(source) if source.is_typed_array() => {
                 // a. Perform ? SetTypedArrayFromTypedArray(target, targetOffset, source).
-                Self::set_typed_array_from_typed_array(target, target_offset, source, context)?;
+                Self::set_typed_array_from_typed_array(&target, target_offset, &source, context)?;
             }
             // 7. Else,
             _ => {
                 // a. Perform ? SetTypedArrayFromArrayLike(target, targetOffset, source).
-                Self::set_typed_array_from_array_like(target, target_offset, source, context)?;
+                Self::set_typed_array_from_array_like(&target, target_offset, source, context)?;
             }
         }
 
@@ -2288,7 +2290,7 @@ impl TypedArray {
         let count = std::cmp::max(r#final - k, 0) as usize;
 
         // 13. Let A be ? TypedArraySpeciesCreate(O, « 𝔽(count) »).
-        let a = Self::species_create(obj, o.typed_array_name(), &[count.into()], context)?;
+        let a = Self::species_create(&obj, o.typed_array_name(), &[count.into()], context)?;
         let a_borrow = a.borrow();
         let a_array = a_borrow
             .as_typed_array()
@@ -2463,9 +2465,9 @@ impl TypedArray {
     /// [spec]: https://tc39.es/ecma262/#sec-%typedarray%.prototype.sort
     fn sort(this: &JsValue, args: &[JsValue], context: &mut Context) -> JsResult<JsValue> {
         // 1. If comparefn is not undefined and IsCallable(comparefn) is false, throw a TypeError exception.
-        let compare_fn = match args.get(0) {
-            None | Some(JsValue::Undefined) => None,
-            Some(JsValue::Object(obj)) if obj.is_callable() => Some(obj),
+        let compare_fn = match args.get(0).map(JsValue::variant) {
+            None | Some(JsVariant::Undefined) => None,
+            Some(JsVariant::Object(obj)) if obj.is_callable() => Some(obj),
             _ => {
                 return context
                     .throw_type_error("TypedArray.sort called with non-callable comparefn")
@@ -2549,7 +2551,7 @@ impl TypedArray {
                 return Ok(v.partial_cmp(&0.0).unwrap_or(Ordering::Equal));
             }
 
-            if let (JsValue::BigInt(x), JsValue::BigInt(y)) = (x, y) {
+            if let (Some(x), Some(y)) = (x.as_bigint(), y.as_bigint()) {
                 // 6. If x < y, return -1𝔽.
                 if x < y {
                     return Ok(Ordering::Less);
@@ -2634,7 +2636,7 @@ impl TypedArray {
         let mut sort_err = Ok(());
         items.sort_by(|x, y| {
             if sort_err.is_ok() {
-                sort_compare(x, y, compare_fn, context).unwrap_or_else(|err| {
+                sort_compare(x, y, compare_fn.as_ref(), context).unwrap_or_else(|err| {
                     sort_err = Err(err);
                     Ordering::Equal
                 })
@@ -2734,7 +2736,7 @@ impl TypedArray {
         // 19. Let argumentsList be « buffer, 𝔽(beginByteOffset), 𝔽(newLength) ».
         // 20. Return ? TypedArraySpeciesCreate(O, argumentsList).
         Ok(Self::species_create(
-            obj,
+            &obj,
             o.typed_array_name(),
             &[
                 buffer.clone().into(),
@@ -2770,7 +2772,7 @@ impl TypedArray {
 
         // 3. Return CreateArrayIterator(O, value).
         Ok(ArrayIterator::create_array_iterator(
-            o.clone(),
+            o,
             PropertyNameKind::Value,
             context,
         ))
@@ -2797,7 +2799,7 @@ impl TypedArray {
                     .as_typed_array()
                     .map(|o| o.typed_array_name().name().into())
             })
-            .unwrap_or(JsValue::Undefined))
+            .unwrap_or_else(JsValue::undefined))
     }
 
     /// `23.2.4.1 TypedArraySpeciesCreate ( exemplar, argumentList )`

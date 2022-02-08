@@ -24,7 +24,7 @@ use crate::{
     },
     property::{Attribute, PropertyDescriptor, PropertyNameKind},
     symbol::WellKnownSymbols,
-    value::{IntegerOrInfinity, JsValue},
+    value::{IntegerOrInfinity, JsValue, JsVariant},
     BoaProfiler, Context, JsResult, JsString,
 };
 use std::cmp::{max, min, Ordering};
@@ -360,7 +360,6 @@ impl Array {
             Ok(
                 c.construct(&[JsValue::new(length)], &c.clone().into(), context)?
                     .as_object()
-                    .cloned()
                     .unwrap(),
             )
         } else {
@@ -444,7 +443,6 @@ impl Array {
             Some(constructor) => constructor
                 .construct(&[len.into()], this, context)?
                 .as_object()
-                .cloned()
                 .ok_or_else(|| {
                     context.construct_type_error("object constructor didn't return an object")
                 })?,
@@ -1565,7 +1563,7 @@ impl Array {
             source_len as u64,
             0,
             1,
-            Some(mapper_function),
+            Some(&mapper_function),
             args.get_or_undefined(1),
             context,
         )?;
@@ -1655,7 +1653,7 @@ impl Array {
                     // 4. Set targetIndex to ? FlattenIntoArray(target, element, elementLen, targetIndex, newDepth)
                     target_index = Self::flatten_into_array(
                         target,
-                        element,
+                        &element,
                         element_len as u64,
                         target_index,
                         new_depth,
@@ -2192,9 +2190,9 @@ impl Array {
         context: &mut Context,
     ) -> JsResult<JsValue> {
         // 1. If comparefn is not undefined and IsCallable(comparefn) is false, throw a TypeError exception.
-        let comparefn = match args.get_or_undefined(0) {
-            JsValue::Object(ref obj) if obj.is_callable() => Some(obj),
-            JsValue::Undefined => None,
+        let comparefn = match args.get_or_undefined(0).variant() {
+            JsVariant::Object(obj) if obj.is_callable() => Some(obj),
+            JsVariant::Undefined => None,
             _ => {
                 return context.throw_type_error(
                     "The comparison function must be either a function or undefined",
@@ -2221,11 +2219,11 @@ impl Array {
                 }
 
                 // 4. If comparefn is not undefined, then
-                if let Some(cmp) = comparefn {
+                if let Some(ref cmp) = comparefn {
                     let args = [x.clone(), y.clone()];
                     // a. Let v be ? ToNumber(? Call(comparefn, undefined, « x, y »)).
                     let v = cmp
-                        .call(&JsValue::Undefined, &args, context)?
+                        .call(&JsValue::undefined(), &args, context)?
                         .to_number(context)?;
                     // b. If v is NaN, return +0𝔽.
                     // c. Return v.

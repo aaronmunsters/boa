@@ -115,7 +115,7 @@ impl Proxy {
         let p = JsObject::from_proto_and_data(
             context.standard_objects().object_object().prototype(),
             ObjectData::proxy(
-                Self::new(target.clone(), handler.clone()),
+                Self::new(target.clone(), handler),
                 target.is_callable(),
                 target.is_constructor(),
             ),
@@ -160,7 +160,7 @@ impl Proxy {
                     .data = None;
 
                 // d. Set F.[[RevocableProxy]] to null.
-                *revocable_proxy = JsValue::Null;
+                *revocable_proxy = JsValue::null();
 
                 // h. Return undefined.
                 Ok(JsValue::undefined())

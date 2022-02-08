@@ -579,7 +579,7 @@ impl JsObject {
                 // Push function arguments to the stack.
                 let args = if code.params.len() > args.len() {
                     let mut v = args.to_vec();
-                    v.extend(vec![JsValue::Undefined; code.params.len() - args.len()]);
+                    v.extend(vec![JsValue::undefined(); code.params.len() - args.len()]);
                     v
                 } else {
                     args.to_vec()
@@ -749,7 +749,7 @@ impl JsObject {
                 // Push function arguments to the stack.
                 let args = if code.params.len() > args.len() {
                     let mut v = args.to_vec();
-                    v.extend(vec![JsValue::Undefined; code.params.len() - args.len()]);
+                    v.extend(vec![JsValue::undefined(); code.params.len() - args.len()]);
                     v
                 } else {
                     args.to_vec()

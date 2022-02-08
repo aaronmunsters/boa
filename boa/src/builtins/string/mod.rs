@@ -171,7 +171,6 @@ impl String {
                 Symbol::to_string(value, &[], context)?
                     .as_string()
                     .expect("'Symbol::to_string' returns 'Value::String'")
-                    .clone()
             }
             Some(value) => value.to_string(context)?,
             None => JsString::default(),
@@ -225,7 +224,6 @@ impl String {
 
     fn this_string_value(this: &JsValue, context: &mut Context) -> JsResult<JsString> {
         this.as_string()
-            .cloned()
             .or_else(|| this.as_object().and_then(|obj| obj.borrow().as_string()))
             .ok_or_else(|| context.construct_type_error("'this' is not a string"))
     }
@@ -328,7 +326,7 @@ impl String {
         //    If codeUnits is empty, the empty String is returned.
 
         let s = std::string::String::from_utf16_lossy(elements.as_slice());
-        Ok(JsValue::String(JsString::new(s)))
+        Ok(JsValue::new(JsString::new(s)))
     }
 
     /// Get the string value to a primitive string
@@ -841,6 +839,7 @@ impl String {
         // 5. Let functionalReplace be IsCallable(replaceValue).
         let functional_replace = replace_value
             .as_object()
+            .as_ref()
             .map(JsObject::is_callable)
             .unwrap_or_default();
 
@@ -936,7 +935,7 @@ impl String {
         // 2. If searchValue is neither undefined nor null, then
         if !search_value.is_null_or_undefined() {
             // a. Let isRegExp be ? IsRegExp(searchValue).
-            if let Some(obj) = search_value.as_object().filter(|obj| obj.is_regexp()) {
+            if let Some(obj) = search_value.as_object().filter(JsObject::is_regexp) {
                 // b. If isRegExp is true, then
                 if obj.is_regexp() {
                     // i. Let flags be ? Get(searchValue, "flags").
@@ -973,6 +972,7 @@ impl String {
         // 5. Let functionalReplace be IsCallable(replaceValue).
         let functional_replace = replace_value
             .as_object()
+            .as_ref()
             .map(JsObject::is_callable)
             .unwrap_or_default();
 
@@ -1743,7 +1743,7 @@ impl String {
         if !regexp.is_null_or_undefined() {
             // a. Let isRegExp be ? IsRegExp(regexp).
             // b. If isRegExp is true, then
-            if let Some(regexp_obj) = regexp.as_object().filter(|obj| obj.is_regexp()) {
+            if let Some(regexp_obj) = regexp.as_object().filter(JsObject::is_regexp) {
                 // i. Let flags be ? Get(regexp, "flags").
                 let flags = regexp_obj.get("flags", context)?;
 
@@ -1955,7 +1955,7 @@ pub(crate) fn get_substitution(
                         result.push(*third);
                     } else if let Some(capture) = captures.get(nn - 1) {
                         if let Some(s) = capture.as_string() {
-                            result.push_str(s);
+                            result.push_str(s.as_str());
                         }
                     }
 
@@ -1973,7 +1973,7 @@ pub(crate) fn get_substitution(
                         result.push(second);
                     } else if let Some(capture) = captures.get(n - 1) {
                         if let Some(s) = capture.as_string() {
-                            result.push_str(s);
+                            result.push_str(s.as_str());
                         }
                     }
                 }

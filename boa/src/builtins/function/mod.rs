@@ -390,7 +390,7 @@ impl BuiltInFunctionObject {
         // 9. If Type(targetName) is not String, set targetName to the empty String.
         let target_name = target_name
             .as_string()
-            .map_or(JsString::new(""), Clone::clone);
+            .unwrap_or_default();
 
         // 10. Perform SetFunctionName(F, targetName, "bound").
         set_function_name(&f, &target_name.into(), Some("bound"), context);
@@ -426,7 +426,8 @@ impl BuiltInFunctionObject {
 
     #[allow(clippy::wrong_self_convention)]
     fn to_string(this: &JsValue, _: &[JsValue], context: &mut Context) -> JsResult<JsValue> {
-        let object = this.as_object().map(JsObject::borrow);
+        let object = this.as_object();
+        let object = object.as_ref().map(JsObject::borrow);
         let function = object
             .as_deref()
             .and_then(Object::as_function)
