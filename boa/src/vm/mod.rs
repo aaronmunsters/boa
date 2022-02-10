@@ -302,18 +302,14 @@ impl Context {
                         .interner()
                         .resolve_expect(binding_locator.name())
                         .into();
-                    self.realm
-                        .global_bindings
-                        .string_property_map_mut()
-                        .entry(key)
-                        .or_insert(
-                            PropertyDescriptor::builder()
-                                .value(JsValue::Undefined)
-                                .writable(true)
-                                .enumerable(true)
-                                .configurable(true)
-                                .build(),
-                        );
+                    self.global_bindings_mut().entry(key).or_insert(
+                        PropertyDescriptor::builder()
+                            .value(JsValue::Undefined)
+                            .writable(true)
+                            .enumerable(true)
+                            .configurable(true)
+                            .build(),
+                    );
                 } else {
                     self.realm.environments.put_value_if_uninitialized(
                         binding_locator.environment_index(),
@@ -333,12 +329,8 @@ impl Context {
                         .interner()
                         .resolve_expect(binding_locator.name())
                         .into();
-                    crate::object::internal_methods::global::global_set(
-                        &self.global_object(),
-                        key,
-                        value,
-                        self.global_object().into(),
-                        self,
+                    crate::object::internal_methods::global::global_set_no_receiver(
+                        &key, value, self,
                     )?;
                 } else {
                     self.realm.environments.put_value(
@@ -351,7 +343,6 @@ impl Context {
             Opcode::DefLet => {
                 let index = self.vm.read::<u32>();
                 let binding_locator = self.vm.frame().code.bindings[index as usize];
-                // This binding must never fail or be on the global environment.
                 self.realm.environments.put_value(
                     binding_locator.environment_index(),
                     binding_locator.binding_index(),
@@ -378,12 +369,7 @@ impl Context {
                         .interner()
                         .resolve_expect(binding_locator.name())
                         .into();
-                    match self
-                        .realm
-                        .global_bindings
-                        .string_property_map_mut()
-                        .get(&key)
-                    {
+                    match self.global_bindings_mut().get(&key) {
                         Some(desc) => match desc.kind() {
                             DescriptorKind::Data {
                                 value: Some(value), ..
@@ -392,7 +378,7 @@ impl Context {
                                 if !get.is_undefined() =>
                             {
                                 let get = get.clone();
-                                self.call(&get, &self.global_object().into(), &[])?
+                                self.call(&get, &self.global_object().clone().into(), &[])?
                             }
                             _ => {
                                 return self
@@ -423,12 +409,7 @@ impl Context {
                         .interner()
                         .resolve_expect(binding_locator.name())
                         .into();
-                    match self
-                        .realm
-                        .global_bindings
-                        .string_property_map_mut()
-                        .get(&key)
-                    {
+                    match self.global_bindings_mut().get(&key) {
                         Some(desc) => match desc.kind() {
                             DescriptorKind::Data {
                                 value: Some(value), ..
@@ -437,7 +418,7 @@ impl Context {
                                 if !get.is_undefined() =>
                             {
                                 let get = get.clone();
-                                self.call(&get, &self.global_object().into(), &[])?
+                                self.call(&get, &self.global_object().clone().into(), &[])?
                             }
                             _ => JsValue::undefined(),
                         },
@@ -465,21 +446,15 @@ impl Context {
                         .interner()
                         .resolve_expect(binding_locator.name())
                         .into();
-                    let exists = self
-                        .realm
-                        .global_bindings
-                        .string_property_map_mut()
-                        .contains_key(&key);
+                    let exists = self.global_bindings_mut().contains_key(&key);
 
                     if !exists && (self.strict() || self.vm.frame().code.strict) {
                         return self.throw_reference_error("Binding already exists");
                     }
 
-                    let success = crate::object::internal_methods::global::global_set(
-                        &self.global_object(),
-                        key.clone().into(),
+                    let success = crate::object::internal_methods::global::global_set_no_receiver(
+                        &key.clone().into(),
                         value,
-                        self.global_object().into(),
                         self,
                     )?;
 
@@ -866,14 +841,9 @@ impl Context {
                         }
                     }
                     FinallyReturn::Ok => {
-                        //for _ in 0..self.vm.frame().pop_env_on_return {
-                        //    self.realm.environments.pop();
-                        //}
-                        //self.vm.frame_mut().pop_env_on_return = 0;
                         return Ok(true);
                     }
                     FinallyReturn::Err => {
-                        //self.vm.frame_mut().finally_return = FinallyReturn::None;
                         return Err(self.vm.pop());
                     }
                 }
@@ -933,7 +903,7 @@ impl Context {
                 };
 
                 if this.is_null_or_undefined() {
-                    this = self.global_object().into();
+                    this = self.global_object().clone().into();
                 }
 
                 let result = object.__call__(&this, &arguments, self)?;
@@ -971,7 +941,7 @@ impl Context {
                 };
 
                 if this.is_null_or_undefined() {
-                    this = self.global_object().into();
+                    this = self.global_object().clone().into();
                 }
 
                 let result = object.__call__(&this, &arguments, self)?;
@@ -1080,23 +1050,10 @@ impl Context {
                 } else {
                     JsValue::undefined()
                 };
-                let function_value = self
-                    .vm
-                    .frame()
-                    .this
-                    .clone()
-                    .as_object()
-                    .expect("this must always be an object")
-                    .clone();
 
-                self.realm.environments.push_function(
-                    num_bindings as usize,
-                    this,
-                    is_lexical,
-                    function_value,
-                    JsValue::undefined(),
-                    JsValue::undefined(),
-                );
+                self.realm
+                    .environments
+                    .push_function(num_bindings as usize, this);
             }
             Opcode::PopEnvironment => {
                 self.realm.environments.pop();
@@ -1379,10 +1336,6 @@ impl Context {
                 self.execute_instruction()
             };
 
-            //dbg!(self.realm.environments.stack.len());
-            //dbg!(&self.vm.frame().try_env_stack);
-            //dbg!(&self.vm.frame().catch);
-
             match result {
                 Ok(should_exit) => {
                     if should_exit {
@@ -1393,14 +1346,6 @@ impl Context {
                 Err(e) => {
                     if let Some(address) = self.vm.frame().catch.last() {
                         let address = address.next;
-                        //let try_stack =
-                        //    self.vm.frame_mut().try_env_stack.pop().expect("must exist");
-                        //for _ in 0..try_stack.num_env {
-                        //    self.realm.environments.pop();
-                        //}
-                        //for _ in 0..try_stack.num_loop_stack_entries {
-                        //    self.vm.frame_mut().loop_env_stack.pop();
-                        //}
                         let try_stack_entry = self
                             .vm
                             .frame_mut()
@@ -1428,9 +1373,7 @@ impl Context {
                             .loop_env_stack
                             .last_mut()
                             .expect("must exist") -= num_env;
-                        //if self.vm.frame().finally_return == FinallyReturn::Err {
                         self.vm.frame_mut().try_env_stack.pop().expect("must exist");
-                        //}
                         for _ in 0..self.vm.frame().pop_on_return {
                             self.vm.pop();
                         }
@@ -1439,10 +1382,6 @@ impl Context {
                         self.vm.frame_mut().finally_return = FinallyReturn::Err;
                         self.vm.push(e);
                     } else {
-                        //for _ in 0..self.vm.frame().pop_env_on_return {
-                        //    self.realm.environments.pop();
-                        //}
-
                         return Err(e);
                     }
                 }
