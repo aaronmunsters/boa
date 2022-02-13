@@ -241,8 +241,7 @@ impl CodeBlock {
                 let operand = self.read::<u32>(*pc);
                 *pc += size_of::<u32>();
                 format!(
-                    "{:04}: '{}'",
-                    operand,
+                    "{operand:04}: '{}'",
                     interner.resolve(self.variables[operand as usize]).unwrap(),
                 )
             }
