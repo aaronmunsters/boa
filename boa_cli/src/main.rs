@@ -107,6 +107,10 @@ struct Opt {
     /// Use vi mode in the REPL
     #[structopt(long = "vi")]
     vi_mode: bool,
+
+    #[cfg(feature = "instrumentation")]
+    #[structopt(long = "instrumentation", short = "i", parse(from_os_str))]
+    advice: Option<PathBuf>,
 }
 
 impl Opt {
@@ -193,6 +197,12 @@ pub fn main() -> Result<(), std::io::Error> {
     let args = Opt::from_args();
 
     let mut context = Context::default();
+
+    #[cfg(feature = "instrumentation")]
+    if let Some(path) = &args.advice {
+        let advice_buffer = read(path)?;
+        context.install_advice(advice_buffer);
+    };
 
     // Trace Output
     context.set_trace(args.trace);

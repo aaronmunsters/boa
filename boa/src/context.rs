@@ -18,6 +18,9 @@ use crate::{
     BoaProfiler, Interner, JsResult, JsValue,
 };
 
+#[cfg(feature = "instrumentation")]
+use crate::instrumentation::{InstrumentationConf, Traps};
+
 #[cfg(feature = "console")]
 use crate::builtins::console::Console;
 
@@ -386,6 +389,9 @@ pub struct Context {
     strict: bool,
 
     pub(crate) vm: Vm,
+
+    #[cfg(feature = "instrumentation")]
+    pub instrumentation_conf: InstrumentationConf,
 }
 
 impl Default for Context {
@@ -406,6 +412,8 @@ impl Default for Context {
                 trace: false,
                 stack_size_limit: 1024,
             },
+            #[cfg(feature = "instrumentation")]
+            instrumentation_conf: InstrumentationConf::default(),
         };
 
         // Add new builtIns to Context Realm
@@ -435,6 +443,24 @@ impl Context {
             interner,
             ..Self::default()
         }
+    }
+
+    #[cfg(feature = "instrumentation")]
+    pub fn install_advice<S>(&mut self, advice_buff: S)
+    where
+        S: AsRef<[u8]>,
+    {
+        self.instrumentation_conf.set_mode_meta();
+        let advice = self.eval(advice_buff);
+        match advice {
+            Ok(advice) => {
+                let traps = Traps::from(&advice, self);
+                self.instrumentation_conf.install_traps(traps);
+                self.instrumentation_conf.install_advice(advice);
+            }
+            Err(v) => eprintln!("Evaluating advice: Uncaught {}", v.display()),
+        }
+        self.instrumentation_conf.set_mode_base();
     }
 
     /// Gets the string interner.

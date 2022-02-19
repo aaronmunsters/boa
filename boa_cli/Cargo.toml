@@ -29,3 +29,7 @@ jemallocator = "0.3.2"
 name = "boa"
 doc = false
 path = "src/main.rs"
+
+[features]
+default = ["instrumentation"]
+instrumentation = []

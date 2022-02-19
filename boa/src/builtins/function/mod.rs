@@ -35,6 +35,9 @@ use std::{
     ops::{Deref, DerefMut},
 };
 
+#[cfg(feature = "instrumentation")]
+use crate::instrumentation::EvaluationMode;
+
 pub(crate) mod arguments;
 #[cfg(test)]
 mod tests;
@@ -178,6 +181,8 @@ pub enum Function {
     VmOrdinary {
         code: Gc<crate::vm::CodeBlock>,
         environment: Environment,
+        #[cfg(feature = "instrumentation")]
+        evaluation_mode: EvaluationMode,
     },
 }
 

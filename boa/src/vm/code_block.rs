@@ -23,6 +23,9 @@ use crate::{
 use boa_interner::{Interner, Sym, ToInternedString};
 use std::{convert::TryInto, mem::size_of};
 
+#[cfg(feature = "instrumentation")]
+use crate::{builtins::Array, instrumentation::EvaluationMode};
+
 /// This represents whether a value can be read from [`CodeBlock`] code.
 ///
 /// # Safety
@@ -392,7 +395,12 @@ impl JsVmFunction {
             .configurable(true)
             .build();
 
-        let function = Function::VmOrdinary { code, environment };
+        let function = Function::VmOrdinary {
+            code,
+            environment,
+            #[cfg(feature = "instrumentation")]
+            evaluation_mode: context.instrumentation_conf.mode(),
+        };
 
         let constructor =
             JsObject::from_proto_and_data(function_prototype, ObjectData::function(function));
@@ -433,6 +441,8 @@ pub(crate) enum FunctionBody {
     Ordinary {
         code: Gc<CodeBlock>,
         environment: Environment,
+        #[cfg(feature = "instrumentation")]
+        evaluation_mode: EvaluationMode,
     },
     Native {
         function: NativeFunctionSignature,
@@ -460,6 +470,34 @@ impl JsObject {
 
         let mut construct = false;
 
+        #[cfg(feature = "instrumentation")]
+        if let EvaluationMode::BaseEvaluation = context.instrumentation_conf.mode() {
+            if let Some(traps) = &mut context.instrumentation_conf.traps {
+                let traps = traps.clone();
+                if let Some(ref trap) = traps.apply_trap {
+                    if let Some(advice) = context.instrumentation_conf.advice() {
+                        context.instrumentation_conf.set_mode_meta();
+
+                        let js_args = Array::create_array_from_list(args.to_owned(), context);
+
+                        let result = context.call(
+                            trap,
+                            &advice,
+                            &[
+                                JsValue::from(this_function_object),
+                                this.clone(),
+                                JsValue::from(js_args),
+                            ],
+                        );
+
+                        context.instrumentation_conf.set_mode_base();
+
+                        return result;
+                    }
+                }
+            }
+        }
+
         let body = {
             let object = self.borrow();
             let function = object.as_function().expect("not a function");
@@ -483,9 +521,16 @@ impl JsObject {
                     function: function.clone(),
                     captures: captures.clone(),
                 },
-                Function::VmOrdinary { code, environment } => FunctionBody::Ordinary {
+                Function::VmOrdinary {
+                    code,
+                    environment,
+                    #[cfg(feature = "instrumentation")]
+                    evaluation_mode,
+                } => FunctionBody::Ordinary {
                     code: code.clone(),
                     environment: environment.clone(),
+                    #[cfg(feature = "instrumentation")]
+                    evaluation_mode: evaluation_mode.clone(),
                 },
             }
         };
@@ -498,7 +543,12 @@ impl JsObject {
             FunctionBody::Closure { function, captures } => {
                 (function)(this, args, captures, context)
             }
-            FunctionBody::Ordinary { code, environment } => {
+            FunctionBody::Ordinary {
+                code,
+                environment,
+                #[cfg(feature = "instrumentation")]
+                evaluation_mode,
+            } => {
                 let lexical_this_mode = code.this_mode == ThisMode::Lexical;
 
                 // Create a new Function environment whose parent is set to the scope of the function declaration (self.environment)
@@ -606,7 +656,12 @@ impl JsObject {
                     arg_count,
                 });
 
+                let outer_evaluation_mode = context.instrumentation_conf.mode();
+                context.instrumentation_conf.set_mode(evaluation_mode);
+
                 let result = context.run();
+
+                context.instrumentation_conf.set_mode(outer_evaluation_mode);
 
                 context.pop_environment();
                 if has_parameter_expressions {
@@ -645,9 +700,16 @@ impl JsObject {
                     function: function.clone(),
                     captures: captures.clone(),
                 },
-                Function::VmOrdinary { code, environment } => FunctionBody::Ordinary {
+                Function::VmOrdinary {
+                    code,
+                    environment,
+                    #[cfg(feature = "instrumentation")]
+                    evaluation_mode,
+                } => FunctionBody::Ordinary {
                     code: code.clone(),
                     environment: environment.clone(),
+                    #[cfg(feature = "instrumentation")]
+                    evaluation_mode: evaluation_mode.clone(),
                 },
             }
         };
@@ -657,7 +719,12 @@ impl JsObject {
             FunctionBody::Closure { function, captures } => {
                 (function)(this_target, args, captures, context)
             }
-            FunctionBody::Ordinary { code, environment } => {
+            FunctionBody::Ordinary {
+                code,
+                environment,
+                #[cfg(feature = "instrumentation")]
+                    evaluation_mode: _,
+            } => {
                 let this: JsValue = {
                     // If the prototype of the constructor is not an object, then use the default object
                     // prototype as prototype for the new object
