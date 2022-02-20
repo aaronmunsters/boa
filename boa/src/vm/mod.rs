@@ -254,6 +254,7 @@ impl Context {
                         let traps = traps.clone();
                         if let Some(ref trap) = traps.write_trap {
                             if let Some(advice) = self.instrumentation_conf.advice() {
+                                self.instrumentation_conf.set_mode_meta();
                                 let index = self.vm.read::<u32>();
                                 let binding_locator = self.vm.frame().code.bindings[index as usize];
 
@@ -535,7 +536,64 @@ impl Context {
 
                                 match result {
                                     Ok(value) => {
+                                        self.instrumentation_conf.set_mode_base();
                                         self.vm.push(value);
+                                        return Ok(false);
+                                    }
+                                    Err(v) => {
+                                        eprintln!("Instrumentation: Uncaught {}", v.display());
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+                // Set instrumentation
+                Opcode::SetPropertyByName => {
+                    if let Some(traps) = &mut self.instrumentation_conf.traps {
+                        let traps = traps.clone();
+                        if let Some(ref trap) = traps.set_trap {
+                            if let Some(advice) = self.instrumentation_conf.advice() {
+                                self.instrumentation_conf.set_mode_meta();
+
+                                let index = self.vm.read::<u32>();
+
+                                let object = self.vm.pop();
+                                let value = self.vm.pop();
+                                let name = self.vm.frame().code.variables[index as usize];
+                                let js_name = self.interner().resolve_expect(name).into();
+
+                                let result = self.call(trap, &advice, &[object, js_name, value]);
+
+                                match result {
+                                    Ok(_value) => {
+                                        self.instrumentation_conf.set_mode_base();
+                                        return Ok(false);
+                                    }
+                                    Err(v) => {
+                                        eprintln!("Instrumentation: Uncaught {}", v.display());
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+                Opcode::SetPropertyByValue => {
+                    if let Some(traps) = &mut self.instrumentation_conf.traps {
+                        let traps = traps.clone();
+                        if let Some(ref trap) = traps.set_trap {
+                            if let Some(advice) = self.instrumentation_conf.advice() {
+                                self.instrumentation_conf.set_mode_meta();
+
+                                let object = self.vm.pop();
+                                let key = self.vm.pop();
+                                let value = self.vm.pop();
+
+                                let result = self.call(trap, &advice, &[object, key, value]);
+
+                                match result {
+                                    Ok(_value) => {
+                                        self.instrumentation_conf.set_mode_base();
                                         return Ok(false);
                                     }
                                     Err(v) => {
