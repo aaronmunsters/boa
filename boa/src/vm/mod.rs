@@ -490,6 +490,62 @@ impl Context {
                         }
                     }
                 }
+                // Get instrumentation
+                Opcode::GetPropertyByName => {
+                    if let Some(traps) = &mut self.instrumentation_conf.traps {
+                        let traps = traps.clone();
+                        if let Some(ref trap) = traps.get_trap {
+                            if let Some(advice) = self.instrumentation_conf.advice() {
+                                self.instrumentation_conf.set_mode_meta();
+
+                                let index = self.vm.read::<u32>();
+                                let value = self.vm.pop();
+
+                                let name = self.vm.frame().code.variables[index as usize];
+                                let js_name: JsValue =
+                                    self.interner().resolve_expect(name).clone().into();
+
+                                let result = self.call(trap, &advice, &[value, js_name]);
+
+                                match result {
+                                    Ok(value) => {
+                                        self.instrumentation_conf.set_mode_base();
+                                        self.vm.push(value);
+                                        return Ok(false);
+                                    }
+                                    Err(v) => {
+                                        eprintln!("Instrumentation: Uncaught {}", v.display());
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+                Opcode::GetPropertyByValue => {
+                    if let Some(traps) = &mut self.instrumentation_conf.traps {
+                        let traps = traps.clone();
+                        if let Some(ref trap) = traps.get_trap {
+                            if let Some(advice) = self.instrumentation_conf.advice() {
+                                self.instrumentation_conf.set_mode_meta();
+
+                                let object = self.vm.pop();
+                                let key = self.vm.pop();
+
+                                let result = self.call(trap, &advice, &[object, key]);
+
+                                match result {
+                                    Ok(value) => {
+                                        self.vm.push(value);
+                                        return Ok(false);
+                                    }
+                                    Err(v) => {
+                                        eprintln!("Instrumentation: Uncaught {}", v.display());
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
                 _ => (),
             }
         }
