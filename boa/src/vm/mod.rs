@@ -4,12 +4,7 @@
 
 use crate::{
     builtins::{iterable::IteratorRecord, Array, ForInIterator, Number},
-    environment::{
-        declarative_environment_record::DeclarativeEnvironmentRecord,
-        function_environment_record::{BindingStatus, FunctionEnvironmentRecord},
-        lexical_environment::{Environment, VariableScope},
-    },
-    property::{PropertyDescriptor, PropertyKey},
+    property::{DescriptorKind, PropertyDescriptor, PropertyKey},
     value::Numeric,
     vm::{call_frame::CatchAddresses, code_block::Readable},
     BoaProfiler, Context, JsBigInt, JsResult, JsString, JsValue,
@@ -25,8 +20,9 @@ mod code_block;
 mod opcode;
 
 pub use call_frame::CallFrame;
-pub(crate) use call_frame::FinallyReturn;
+pub(crate) use call_frame::{FinallyReturn, TryStackEntry};
 pub use code_block::{CodeBlock, JsVmFunction};
+pub(crate) use opcode::BindingOpcode;
 pub use opcode::Opcode;
 
 #[cfg(test)]
@@ -195,23 +191,53 @@ impl Context {
                                 self.instrumentation_conf.set_mode_meta();
 
                                 let index = self.vm.read::<u32>();
-                                let name = self.vm.frame().code.variables[index as usize];
-
-                                let value = if self.has_binding(name)? {
-                                    self.get_binding_value(name)?
+                                let binding_locator = self.vm.frame().code.bindings[index as usize];
+                                binding_locator.throw_mutate_immutable(self)?;
+                                let value = if binding_locator.is_global() {
+                                    let key: JsString = self
+                                        .interner()
+                                        .resolve_expect(binding_locator.name())
+                                        .into();
+                                    match self.global_bindings_mut().get(&key) {
+                                        Some(desc) => match desc.kind() {
+                                            DescriptorKind::Data {
+                                                value: Some(value), ..
+                                            } => value.clone(),
+                                            DescriptorKind::Accessor { get: Some(get), .. }
+                                                if !get.is_undefined() =>
+                                            {
+                                                let get = get.clone();
+                                                self.call(
+                                                    &get,
+                                                    &self.global_object().clone().into(),
+                                                    &[],
+                                                )?
+                                            }
+                                            _ => JsValue::undefined(),
+                                        },
+                                        _ => JsValue::undefined(),
+                                    }
+                                } else if let Some(value) =
+                                    self.realm.environments.get_value_optional(
+                                        binding_locator.environment_index(),
+                                        binding_locator.binding_index(),
+                                    )
+                                {
+                                    value
                                 } else {
-                                    JsValue::Undefined
+                                    JsValue::undefined()
                                 };
 
+                                let name = binding_locator.name();
                                 let name: JsValue =
-                                    self.interner().resolve(name).unwrap().clone().into();
+                                    self.interner().resolve_expect(name).clone().into();
 
                                 let result = self.call(trap, &advice, &[value, name]);
 
                                 match result {
-                                    Ok(result) => {
+                                    Ok(value) => {
                                         self.instrumentation_conf.set_mode_base();
-                                        self.vm.push(result);
+                                        self.vm.push(value);
                                         return Ok(false);
                                     }
                                     Err(v) => {
@@ -229,38 +255,49 @@ impl Context {
                         if let Some(ref trap) = traps.write_trap {
                             if let Some(advice) = self.instrumentation_conf.advice() {
                                 let index = self.vm.read::<u32>();
-                                let name = self.vm.frame().code.variables[index as usize];
-                                if !self.has_binding(name)? {
-                                    self.instrumentation_conf.set_mode_meta();
+                                let binding_locator = self.vm.frame().code.bindings[index as usize];
 
-                                    let js_name: JsValue =
-                                        self.interner().resolve(name).unwrap().clone().into();
+                                let name = binding_locator.name();
 
-                                    let result =
-                                        self.call(trap, &advice, &[JsValue::Undefined, js_name]);
+                                let js_name: JsValue =
+                                    self.interner().resolve_expect(name).clone().into();
 
-                                    match result {
-                                        Ok(value) => {
-                                            self.instrumentation_conf.set_mode_base();
-                                            self.create_mutable_binding(
-                                                name,
-                                                false,
-                                                VariableScope::Function,
-                                            )?;
-                                            self.initialize_binding(name, value)?;
-                                            return Ok(false);
+                                let result =
+                                    self.call(trap, &advice, &[JsValue::Undefined, js_name]);
+
+                                match result {
+                                    Ok(value) => {
+                                        self.instrumentation_conf.set_mode_base();
+                                        if binding_locator.is_global() {
+                                            let key = self
+                                                .interner()
+                                                .resolve_expect(binding_locator.name())
+                                                .into();
+                                            self.global_bindings_mut().entry(key).or_insert(
+                                                PropertyDescriptor::builder()
+                                                    .value(value)
+                                                    .writable(true)
+                                                    .enumerable(true)
+                                                    .configurable(true)
+                                                    .build(),
+                                            );
+                                        } else {
+                                            self.realm.environments.put_value_if_uninitialized(
+                                                binding_locator.environment_index(),
+                                                binding_locator.binding_index(),
+                                                value,
+                                            );
                                         }
-                                        Err(v) => {
-                                            eprintln!("Instrumentation: Uncaught {}", v.display());
-                                        }
+                                        return Ok(false);
+                                    }
+                                    Err(v) => {
+                                        eprintln!("Instrumentation: Uncaught {}", v.display());
                                     }
                                 }
                             }
                         }
                     }
                 }
-                Opcode::DefInitArg => (), // TODO: determine if this would ever be needed
-                // Opcode::DefVar => (), // TODO
                 Opcode::DefInitVar => {
                     if let Some(traps) = &mut self.instrumentation_conf.traps {
                         let traps = traps.clone();
@@ -269,8 +306,11 @@ impl Context {
                                 self.instrumentation_conf.set_mode_meta();
 
                                 let index = self.vm.read::<u32>();
-                                let name = self.vm.frame().code.variables[index as usize];
                                 let value = self.vm.pop();
+                                let binding_locator = self.vm.frame().code.bindings[index as usize];
+                                binding_locator.throw_mutate_immutable(self)?;
+
+                                let name = binding_locator.name();
 
                                 let js_name: JsValue =
                                     self.interner().resolve(name).unwrap().clone().into();
@@ -280,15 +320,20 @@ impl Context {
                                 match result {
                                     Ok(value) => {
                                         self.instrumentation_conf.set_mode_base();
-                                        if self.has_binding(name)? {
-                                            self.set_mutable_binding(name, value, self.strict())?;
-                                        } else {
-                                            self.create_mutable_binding(
-                                                name,
-                                                false,
-                                                VariableScope::Function,
+                                        if binding_locator.is_global() {
+                                            let key = self
+                                                .interner()
+                                                .resolve_expect(binding_locator.name())
+                                                .into();
+                                            crate::object::internal_methods::global::global_set_no_receiver(
+                                                &key, value, self,
                                             )?;
-                                            self.initialize_binding(name, value)?;
+                                        } else {
+                                            self.realm.environments.put_value(
+                                                binding_locator.environment_index(),
+                                                binding_locator.binding_index(),
+                                                value,
+                                            );
                                         }
                                         return Ok(false);
                                     }
@@ -308,7 +353,8 @@ impl Context {
                                 self.instrumentation_conf.set_mode_meta();
 
                                 let index = self.vm.read::<u32>();
-                                let name = self.vm.frame().code.variables[index as usize];
+                                let binding_locator = self.vm.frame().code.bindings[index as usize];
+                                let name = binding_locator.name();
 
                                 let js_name: JsValue =
                                     self.interner().resolve(name).unwrap().clone().into();
@@ -319,12 +365,11 @@ impl Context {
                                 match result {
                                     Ok(value) => {
                                         self.instrumentation_conf.set_mode_base();
-                                        self.create_mutable_binding(
-                                            name,
-                                            false,
-                                            VariableScope::Block,
-                                        )?;
-                                        self.initialize_binding(name, value)?;
+                                        self.realm.environments.put_value(
+                                            binding_locator.environment_index(),
+                                            binding_locator.binding_index(),
+                                            value,
+                                        );
 
                                         return Ok(false);
                                     }
@@ -336,43 +381,8 @@ impl Context {
                         }
                     }
                 }
-                Opcode::DefInitLet => {
-                    if let Some(traps) = &mut self.instrumentation_conf.traps {
-                        let traps = traps.clone();
-                        if let Some(ref trap) = traps.write_trap {
-                            if let Some(advice) = self.instrumentation_conf.advice() {
-                                self.instrumentation_conf.set_mode_meta();
-
-                                let index = self.vm.read::<u32>();
-                                let name = self.vm.frame().code.variables[index as usize];
-                                let value = self.vm.pop();
-
-                                let js_name: JsValue =
-                                    self.interner().resolve(name).unwrap().clone().into();
-
-                                let result = self.call(trap, &advice, &[value, js_name]);
-
-                                match result {
-                                    Ok(value) => {
-                                        self.instrumentation_conf.set_mode_base();
-                                        self.create_mutable_binding(
-                                            name,
-                                            false,
-                                            VariableScope::Block,
-                                        )?;
-                                        self.initialize_binding(name, value)?;
-
-                                        return Ok(false);
-                                    }
-                                    Err(v) => {
-                                        eprintln!("Instrumentation: Uncaught {}", v.display());
-                                    }
-                                }
-                            }
-                        }
-                    }
-                }
-                Opcode::DefInitConst => {
+                // TODO: Opcode::DefInitArg - determine if this makes sense?
+                Opcode::DefInitLet | Opcode::DefInitConst => {
                     if let Some(traps) = &mut self.instrumentation_conf.traps {
                         let traps = traps.clone();
                         if let Some(ref trap) = traps.write_trap {
@@ -381,22 +391,22 @@ impl Context {
 
                                 let index = self.vm.read::<u32>();
                                 let value = self.vm.pop();
-                                let name = self.vm.frame().code.variables[index as usize];
+                                let binding_locator = self.vm.frame().code.bindings[index as usize];
+                                let name = binding_locator.name();
 
                                 let js_name: JsValue =
-                                    self.interner().resolve(name).unwrap().clone().into();
+                                    self.interner().resolve_expect(name).clone().into();
 
                                 let result = self.call(trap, &advice, &[value, js_name]);
 
                                 match result {
                                     Ok(value) => {
                                         self.instrumentation_conf.set_mode_base();
-                                        self.create_immutable_binding(
-                                            name,
-                                            true,
-                                            VariableScope::Block,
-                                        )?;
-                                        self.initialize_binding(name, value)?;
+                                        self.realm.environments.put_value(
+                                            binding_locator.environment_index(),
+                                            binding_locator.binding_index(),
+                                            value,
+                                        );
                                         return Ok(false);
                                     }
                                     Err(v) => {
@@ -415,22 +425,61 @@ impl Context {
                                 self.instrumentation_conf.set_mode_meta();
 
                                 let index = self.vm.read::<u32>();
+                                let binding_locator = self.vm.frame().code.bindings[index as usize];
                                 let value = self.vm.pop();
-                                let name = self.vm.frame().code.variables[index as usize];
+                                binding_locator.throw_mutate_immutable(self)?;
 
-                                let js_name: JsValue =
-                                    self.interner().resolve(name).unwrap().clone().into();
+                                let js_name: JsValue = self
+                                    .interner()
+                                    .resolve_expect(binding_locator.name())
+                                    .clone()
+                                    .into();
 
                                 let result = self.call(trap, &advice, &[value, js_name]);
 
                                 match result {
-                                    Ok(result) => {
+                                    Ok(value) => {
                                         self.instrumentation_conf.set_mode_base();
-                                        self.set_mutable_binding(
-                                            name,
-                                            result,
-                                            self.strict() || self.vm.frame().code.strict,
-                                        )?;
+                                        if binding_locator.is_global() {
+                                            let key: JsString = self
+                                                .interner()
+                                                .resolve_expect(binding_locator.name())
+                                                .into();
+                                            let exists =
+                                                self.global_bindings_mut().contains_key(&key);
+
+                                            if !exists
+                                                && (self.strict() || self.vm.frame().code.strict)
+                                            {
+                                                return self.throw_reference_error(format!(
+                                                    "binding already exists: {key}"
+                                                ));
+                                            }
+
+                                            let success = crate::object::internal_methods::global::global_set_no_receiver(
+                                                &key.clone().into(),
+                                                value,
+                                                self,
+                                            )?;
+
+                                            if !success
+                                                && (self.strict() || self.vm.frame().code.strict)
+                                            {
+                                                return self.throw_reference_error(format!(
+                                                    "assignment to undeclared variable: {key}",
+                                                ));
+                                            }
+                                        } else if !self.realm.environments.put_value_if_initialized(
+                                            binding_locator.environment_index(),
+                                            binding_locator.binding_index(),
+                                            value,
+                                        ) {
+                                            self.throw_reference_error(format!(
+                                                "cannot access '{}' before initialization",
+                                                self.interner()
+                                                    .resolve_expect(binding_locator.name())
+                                            ))?;
+                                        }
                                         return Ok(false);
                                     }
                                     Err(v) => {
@@ -629,88 +678,185 @@ impl Context {
                     Numeric::BigInt(bigint) => self.vm.push(JsBigInt::not(&bigint)),
                 }
             }
-            Opcode::DefInitArg => {
-                let index = self.vm.read::<u32>();
-                let name = self.vm.frame().code.variables[index as usize];
-                let value = self.vm.pop();
-                let local_env = self.get_current_environment();
-                local_env
-                    .create_mutable_binding(name, false, true, self)
-                    .expect("Failed to create argument binding");
-                self.initialize_binding(name, value)?;
-            }
             Opcode::DefVar => {
                 let index = self.vm.read::<u32>();
-                let name = self.vm.frame().code.variables[index as usize];
+                let binding_locator = self.vm.frame().code.bindings[index as usize];
 
-                if !self.has_binding(name)? {
-                    self.create_mutable_binding(name, false, VariableScope::Function)?;
-                    self.initialize_binding(name, JsValue::Undefined)?;
+                if binding_locator.is_global() {
+                    let key = self
+                        .interner()
+                        .resolve_expect(binding_locator.name())
+                        .into();
+                    self.global_bindings_mut().entry(key).or_insert(
+                        PropertyDescriptor::builder()
+                            .value(JsValue::Undefined)
+                            .writable(true)
+                            .enumerable(true)
+                            .configurable(true)
+                            .build(),
+                    );
+                } else {
+                    self.realm.environments.put_value_if_uninitialized(
+                        binding_locator.environment_index(),
+                        binding_locator.binding_index(),
+                        JsValue::Undefined,
+                    );
                 }
             }
             Opcode::DefInitVar => {
                 let index = self.vm.read::<u32>();
-                let name = self.vm.frame().code.variables[index as usize];
                 let value = self.vm.pop();
+                let binding_locator = self.vm.frame().code.bindings[index as usize];
+                binding_locator.throw_mutate_immutable(self)?;
 
-                if self.has_binding(name)? {
-                    self.set_mutable_binding(name, value, self.strict())?;
+                if binding_locator.is_global() {
+                    let key = self
+                        .interner()
+                        .resolve_expect(binding_locator.name())
+                        .into();
+                    crate::object::internal_methods::global::global_set_no_receiver(
+                        &key, value, self,
+                    )?;
                 } else {
-                    self.create_mutable_binding(name, false, VariableScope::Function)?;
-                    self.initialize_binding(name, value)?;
+                    self.realm.environments.put_value(
+                        binding_locator.environment_index(),
+                        binding_locator.binding_index(),
+                        value,
+                    );
                 }
             }
             Opcode::DefLet => {
                 let index = self.vm.read::<u32>();
-                let name = self.vm.frame().code.variables[index as usize];
-
-                self.create_mutable_binding(name, false, VariableScope::Block)?;
-                self.initialize_binding(name, JsValue::Undefined)?;
+                let binding_locator = self.vm.frame().code.bindings[index as usize];
+                self.realm.environments.put_value(
+                    binding_locator.environment_index(),
+                    binding_locator.binding_index(),
+                    JsValue::Undefined,
+                );
             }
-            Opcode::DefInitLet => {
+            Opcode::DefInitLet | Opcode::DefInitConst | Opcode::DefInitArg => {
                 let index = self.vm.read::<u32>();
-                let name = self.vm.frame().code.variables[index as usize];
                 let value = self.vm.pop();
-
-                self.create_mutable_binding(name, false, VariableScope::Block)?;
-                self.initialize_binding(name, value)?;
-            }
-            Opcode::DefInitConst => {
-                let index = self.vm.read::<u32>();
-                let name = self.vm.frame().code.variables[index as usize];
-                let value = self.vm.pop();
-
-                self.create_immutable_binding(name, true, VariableScope::Block)?;
-                self.initialize_binding(name, value)?;
+                let binding_locator = self.vm.frame().code.bindings[index as usize];
+                self.realm.environments.put_value(
+                    binding_locator.environment_index(),
+                    binding_locator.binding_index(),
+                    value,
+                );
             }
             Opcode::GetName => {
                 let index = self.vm.read::<u32>();
-                let name = self.vm.frame().code.variables[index as usize];
+                let binding_locator = self.vm.frame().code.bindings[index as usize];
+                binding_locator.throw_mutate_immutable(self)?;
 
-                let value = self.get_binding_value(name)?;
+                let value = if binding_locator.is_global() {
+                    let key: JsString = self
+                        .interner()
+                        .resolve_expect(binding_locator.name())
+                        .into();
+                    match self.global_bindings_mut().get(&key) {
+                        Some(desc) => match desc.kind() {
+                            DescriptorKind::Data {
+                                value: Some(value), ..
+                            } => value.clone(),
+                            DescriptorKind::Accessor { get: Some(get), .. }
+                                if !get.is_undefined() =>
+                            {
+                                let get = get.clone();
+                                self.call(&get, &self.global_object().clone().into(), &[])?
+                            }
+                            _ => {
+                                return self.throw_reference_error(format!("{key} is not defined"))
+                            }
+                        },
+                        _ => return self.throw_reference_error(format!("{key} is not defined")),
+                    }
+                } else if let Some(value) = self.realm.environments.get_value_optional(
+                    binding_locator.environment_index(),
+                    binding_locator.binding_index(),
+                ) {
+                    value
+                } else {
+                    let name =
+                        JsString::from(self.interner().resolve_expect(binding_locator.name()));
+                    return self.throw_reference_error(format!("{name} is not initialized"));
+                };
+
                 self.vm.push(value);
             }
             Opcode::GetNameOrUndefined => {
                 let index = self.vm.read::<u32>();
-                let name = self.vm.frame().code.variables[index as usize];
-
-                let value = if self.has_binding(name)? {
-                    self.get_binding_value(name)?
+                let binding_locator = self.vm.frame().code.bindings[index as usize];
+                binding_locator.throw_mutate_immutable(self)?;
+                let value = if binding_locator.is_global() {
+                    let key: JsString = self
+                        .interner()
+                        .resolve_expect(binding_locator.name())
+                        .into();
+                    match self.global_bindings_mut().get(&key) {
+                        Some(desc) => match desc.kind() {
+                            DescriptorKind::Data {
+                                value: Some(value), ..
+                            } => value.clone(),
+                            DescriptorKind::Accessor { get: Some(get), .. }
+                                if !get.is_undefined() =>
+                            {
+                                let get = get.clone();
+                                self.call(&get, &self.global_object().clone().into(), &[])?
+                            }
+                            _ => JsValue::undefined(),
+                        },
+                        _ => JsValue::undefined(),
+                    }
+                } else if let Some(value) = self.realm.environments.get_value_optional(
+                    binding_locator.environment_index(),
+                    binding_locator.binding_index(),
+                ) {
+                    value
                 } else {
-                    JsValue::Undefined
+                    JsValue::undefined()
                 };
+
                 self.vm.push(value);
             }
             Opcode::SetName => {
                 let index = self.vm.read::<u32>();
+                let binding_locator = self.vm.frame().code.bindings[index as usize];
                 let value = self.vm.pop();
-                let name = self.vm.frame().code.variables[index as usize];
+                binding_locator.throw_mutate_immutable(self)?;
 
-                self.set_mutable_binding(
-                    name,
+                if binding_locator.is_global() {
+                    let key: JsString = self
+                        .interner()
+                        .resolve_expect(binding_locator.name())
+                        .into();
+                    let exists = self.global_bindings_mut().contains_key(&key);
+
+                    if !exists && (self.strict() || self.vm.frame().code.strict) {
+                        return self
+                            .throw_reference_error(format!("binding already exists: {key}"));
+                    }
+
+                    let success = crate::object::internal_methods::global::global_set_no_receiver(
+                        &key.clone().into(),
+                        value,
+                        self,
+                    )?;
+
+                    if !success && (self.strict() || self.vm.frame().code.strict) {
+                        return self
+                            .throw_type_error(format!("cannot set non-writable property: {key}",));
+                    }
+                } else if !self.realm.environments.put_value_if_initialized(
+                    binding_locator.environment_index(),
+                    binding_locator.binding_index(),
                     value,
-                    self.strict() || self.vm.frame().code.strict,
-                )?;
+                ) {
+                    self.throw_reference_error(format!(
+                        "cannot access '{}' before initialization",
+                        self.interner().resolve_expect(binding_locator.name())
+                    ))?;
+                }
             }
             Opcode::Jump => {
                 let address = self.vm.read::<u32>();
@@ -1014,9 +1160,32 @@ impl Context {
                     .push(CatchAddresses { next, finally });
                 self.vm.frame_mut().finally_jump.push(None);
                 self.vm.frame_mut().finally_return = FinallyReturn::None;
+                self.vm.frame_mut().try_env_stack.push(TryStackEntry {
+                    num_env: 0,
+                    num_loop_stack_entries: 0,
+                });
             }
             Opcode::TryEnd | Opcode::CatchEnd => {
                 self.vm.frame_mut().catch.pop();
+                let try_stack_entry = self.vm.frame_mut().try_env_stack.pop().expect("must exist");
+                for _ in 0..try_stack_entry.num_env {
+                    self.realm.environments.pop();
+                }
+                let mut num_env = try_stack_entry.num_env;
+                for _ in 0..try_stack_entry.num_loop_stack_entries {
+                    num_env -= self
+                        .vm
+                        .frame_mut()
+                        .loop_env_stack
+                        .pop()
+                        .expect("must exist");
+                }
+                *self
+                    .vm
+                    .frame_mut()
+                    .loop_env_stack
+                    .last_mut()
+                    .expect("must exist") -= num_env;
                 self.vm.frame_mut().finally_return = FinallyReturn::None;
             }
             Opcode::CatchStart => {
@@ -1024,6 +1193,10 @@ impl Context {
                 self.vm.frame_mut().catch.push(CatchAddresses {
                     next: finally,
                     finally: Some(finally),
+                });
+                self.vm.frame_mut().try_env_stack.push(TryStackEntry {
+                    num_env: 0,
+                    num_loop_stack_entries: 0,
                 });
             }
             Opcode::CatchEnd2 => {
@@ -1051,14 +1224,9 @@ impl Context {
                         }
                     }
                     FinallyReturn::Ok => {
-                        for _ in 0..self.vm.frame().pop_env_on_return {
-                            self.pop_environment();
-                        }
-                        self.vm.frame_mut().pop_env_on_return = 0;
                         return Ok(true);
                     }
                     FinallyReturn::Err => {
-                        self.vm.frame_mut().finally_return = FinallyReturn::None;
                         return Err(self.vm.pop());
                     }
                 }
@@ -1073,7 +1241,7 @@ impl Context {
                     .expect("finally jump must exist here") = Some(address);
             }
             Opcode::This => {
-                let this = self.get_this_binding()?;
+                let this = self.vm.frame().this.clone();
                 self.vm.push(this);
             }
             Opcode::Case => {
@@ -1095,8 +1263,7 @@ impl Context {
             Opcode::GetFunction => {
                 let index = self.vm.read::<u32>();
                 let code = self.vm.frame().code.functions[index as usize].clone();
-                let environment = self.get_current_environment();
-                let function = JsVmFunction::new(code, environment, self);
+                let function = JsVmFunction::new(code, self);
                 self.vm.push(function);
             }
             Opcode::Call => {
@@ -1119,7 +1286,7 @@ impl Context {
                 };
 
                 if this.is_null_or_undefined() {
-                    this = self.global_object().into();
+                    this = self.global_object().clone().into();
                 }
 
                 let result = object.__call__(&this, &arguments, self)?;
@@ -1157,7 +1324,7 @@ impl Context {
                 };
 
                 if this.is_null_or_undefined() {
-                    this = self.global_object().into();
+                    this = self.global_object().clone().into();
                 }
 
                 let result = object.__call__(&this, &arguments, self)?;
@@ -1221,51 +1388,86 @@ impl Context {
                     frame.pc = finally_address as usize;
                     frame.finally_return = FinallyReturn::Ok;
                     frame.catch.pop();
-                } else {
-                    for _ in 0..self.vm.frame().pop_env_on_return {
-                        self.pop_environment();
+                    let try_stack_entry =
+                        self.vm.frame_mut().try_env_stack.pop().expect("must exist");
+                    for _ in 0..try_stack_entry.num_env {
+                        self.realm.environments.pop();
                     }
-                    self.vm.frame_mut().pop_env_on_return = 0;
+                    let mut num_env = try_stack_entry.num_env;
+                    for _ in 0..try_stack_entry.num_loop_stack_entries {
+                        num_env -= self
+                            .vm
+                            .frame_mut()
+                            .loop_env_stack
+                            .pop()
+                            .expect("must exist");
+                    }
+                    *self
+                        .vm
+                        .frame_mut()
+                        .loop_env_stack
+                        .last_mut()
+                        .expect("must exist") -= num_env;
+                } else {
                     return Ok(true);
                 }
             }
             Opcode::PushDeclarativeEnvironment => {
-                let env = self.get_current_environment();
-                self.push_environment(DeclarativeEnvironmentRecord::new(Some(env)));
-                self.vm.frame_mut().pop_env_on_return += 1;
+                let num_bindings = self.vm.read::<u32>();
+                self.realm
+                    .environments
+                    .push_declarative(num_bindings as usize);
+                self.vm.frame_mut().loop_env_stack_inc();
+                self.vm.frame_mut().try_env_stack_inc();
             }
             Opcode::PushFunctionEnvironment => {
+                let num_bindings = self.vm.read::<u32>();
                 let is_constructor = self.vm.frame().code.constructor;
                 let is_lexical = self.vm.frame().code.this_mode.is_lexical();
-                let current_env = self.get_current_environment();
-                let this = &self.vm.frame().this;
+                let this = if is_constructor || !is_lexical {
+                    self.vm.frame().this.clone()
+                } else {
+                    JsValue::undefined()
+                };
 
-                let new_env = FunctionEnvironmentRecord::new(
-                    this.clone()
-                        .as_object()
-                        .expect("this must always be an object")
-                        .clone(),
-                    if is_constructor || !is_lexical {
-                        Some(this.clone())
-                    } else {
-                        None
-                    },
-                    Some(current_env),
-                    if is_lexical {
-                        BindingStatus::Lexical
-                    } else {
-                        BindingStatus::Uninitialized
-                    },
-                    JsValue::undefined(),
-                    self,
-                )?;
-
-                let new_env: Environment = new_env.into();
-                self.push_environment(new_env);
+                self.realm
+                    .environments
+                    .push_function(num_bindings as usize, this);
             }
             Opcode::PopEnvironment => {
-                let _env = self.pop_environment();
-                self.vm.frame_mut().pop_env_on_return -= 1;
+                self.realm.environments.pop();
+                self.vm.frame_mut().loop_env_stack_dec();
+                self.vm.frame_mut().try_env_stack_dec();
+            }
+            Opcode::LoopStart => {
+                self.vm.frame_mut().loop_env_stack.push(0);
+                self.vm.frame_mut().try_env_stack_loop_inc();
+            }
+            Opcode::LoopContinue => {
+                let env_num = self
+                    .vm
+                    .frame_mut()
+                    .loop_env_stack
+                    .last_mut()
+                    .expect("loop env stack entry must exist");
+                let env_num_copy = *env_num;
+                *env_num = 0;
+                for _ in 0..env_num_copy {
+                    self.realm.environments.pop();
+                }
+            }
+            Opcode::LoopEnd => {
+                let env_num = self
+                    .vm
+                    .frame_mut()
+                    .loop_env_stack
+                    .pop()
+                    .expect("loop env stack entry must exist");
+                for _ in 0..env_num {
+                    self.realm.environments.pop();
+                    self.vm.frame_mut().try_env_stack_dec();
+                }
+                self.vm.frame_mut().try_env_stack_loop_dec();
             }
             Opcode::ForInLoopInitIterator => {
                 let address = self.vm.read::<u32>();
@@ -1359,8 +1561,9 @@ impl Context {
                 let iterator_result = iterator_record.next(self)?;
                 if iterator_result.done {
                     self.vm.frame_mut().pc = address as usize;
-                    self.vm.frame_mut().pop_env_on_return -= 1;
-                    self.pop_environment();
+                    self.vm.frame_mut().loop_env_stack_dec();
+                    self.vm.frame_mut().try_env_stack_dec();
+                    self.realm.environments.pop();
                     self.vm.push(iterator);
                     self.vm.push(next_function);
                 } else {
@@ -1478,7 +1681,11 @@ impl Context {
                     .read::<u8>(pc)
                     .try_into()
                     .expect("invalid opcode");
-                let operands = self.vm.frame().code.instruction_operands(&mut pc);
+                let operands = self
+                    .vm
+                    .frame()
+                    .code
+                    .instruction_operands(&mut pc, self.interner());
 
                 let instant = Instant::now();
                 let result = self.execute_instruction();
@@ -1511,17 +1718,40 @@ impl Context {
                 Ok(should_exit) => {
                     if should_exit {
                         let result = self.vm.pop();
-                        self.vm.pop_frame();
                         return Ok(result);
                     }
                 }
                 Err(e) => {
                     if let Some(address) = self.vm.frame().catch.last() {
                         let address = address.next;
-                        if self.vm.frame().pop_env_on_return > 0 {
-                            self.pop_environment();
-                            self.vm.frame_mut().pop_env_on_return -= 1;
+                        let try_stack_entry = self
+                            .vm
+                            .frame_mut()
+                            .try_env_stack
+                            .last_mut()
+                            .expect("must exist");
+                        let try_stack_entry_copy = *try_stack_entry;
+                        try_stack_entry.num_env = 0;
+                        try_stack_entry.num_loop_stack_entries = 0;
+                        for _ in 0..try_stack_entry_copy.num_env {
+                            self.realm.environments.pop();
                         }
+                        let mut num_env = try_stack_entry_copy.num_env;
+                        for _ in 0..try_stack_entry_copy.num_loop_stack_entries {
+                            num_env -= self
+                                .vm
+                                .frame_mut()
+                                .loop_env_stack
+                                .pop()
+                                .expect("must exist");
+                        }
+                        *self
+                            .vm
+                            .frame_mut()
+                            .loop_env_stack
+                            .last_mut()
+                            .expect("must exist") -= num_env;
+                        self.vm.frame_mut().try_env_stack.pop().expect("must exist");
                         for _ in 0..self.vm.frame().pop_on_return {
                             self.vm.pop();
                         }
@@ -1530,11 +1760,6 @@ impl Context {
                         self.vm.frame_mut().finally_return = FinallyReturn::Err;
                         self.vm.push(e);
                     } else {
-                        for _ in 0..self.vm.frame().pop_env_on_return {
-                            self.pop_environment();
-                        }
-                        self.vm.pop_frame();
-
                         return Err(e);
                     }
                 }
@@ -1564,7 +1789,6 @@ impl Context {
             println!("\n");
         }
 
-        self.vm.pop_frame();
         if self.vm.stack.is_empty() {
             return Ok(JsValue::undefined());
         }
