@@ -186,6 +186,42 @@ impl Context {
                 Opcode::LogicalAnd => todo!(), // |
                 Opcode::LogicalOr => todo!(),  // |- take into account lazy evaluation compilation
                 Opcode::Coalesce => todo!(),   // |
+
+                Opcode::GetName | Opcode::GetNameOrUndefined => {
+                    if let Some(traps) = &mut self.instrumentation_conf.traps {
+                        let traps = traps.clone();
+                        if let Some(ref trap) = traps.read_trap {
+                            if let Some(advice) = self.instrumentation_conf.advice() {
+                                self.instrumentation_conf.set_mode_meta();
+
+                                let index = self.vm.read::<u32>();
+                                let name = self.vm.frame().code.variables[index as usize];
+
+                                let value = if self.has_binding(name)? {
+                                    self.get_binding_value(name)?
+                                } else {
+                                    JsValue::Undefined
+                                };
+
+                                let name: JsValue =
+                                    self.interner().resolve(name).unwrap().clone().into();
+
+                                let result = self.call(trap, &advice, &[value, name]);
+
+                                match result {
+                                    Ok(result) => {
+                                        self.instrumentation_conf.set_mode_base();
+                                        self.vm.push(result);
+                                        return Ok(false);
+                                    }
+                                    Err(v) => {
+                                        eprintln!("Instrumentation: Uncaught {}", v.display());
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
                 _ => (),
             }
         }
