@@ -17,6 +17,9 @@ use crate::{
 use boa_interner::ToInternedString;
 use std::{convert::TryInto, mem::size_of, ops::Neg, time::Instant};
 
+#[cfg(feature = "instrumentation")]
+use crate::instrumentation::EvaluationMode;
+
 mod call_frame;
 mod code_block;
 mod opcode;
@@ -123,6 +126,69 @@ impl Context {
 
         let _timer =
             BoaProfiler::global().start_event(&format!("INST - {}", opcode.as_str()), "vm");
+
+        #[cfg(feature = "instrumentation")]
+        macro_rules! attempt_binary_instr {
+            ($op_string: literal) => {
+                if let Some(traps) = &mut self.instrumentation_conf.traps {
+                    let traps = traps.clone();
+                    if let Some(ref trap) = traps.binary_trap {
+                        if let Some(advice) = self.instrumentation_conf.advice() {
+                            self.instrumentation_conf.set_mode_meta();
+
+                            let rhs = self.vm.pop();
+                            let lhs = self.vm.pop();
+
+                            let result = self.call(trap, &advice, &[$op_string.into(), lhs, rhs]);
+
+                            match result {
+                                Ok(result) => {
+                                    self.instrumentation_conf.set_mode_base();
+                                    self.vm.push(result);
+                                    return Ok(false);
+                                }
+                                Err(v) => {
+                                    eprintln!("Instrumentation: Uncaught {}", v.display());
+                                }
+                            }
+                        }
+                    }
+                }
+            };
+        }
+
+        #[cfg(feature = "instrumentation")]
+        if let EvaluationMode::BaseEvaluation = self.instrumentation_conf.mode() {
+            match opcode {
+                // binary instrumentation
+                Opcode::Add => attempt_binary_instr!("+"),
+                Opcode::Sub => attempt_binary_instr!("-"),
+                Opcode::Div => attempt_binary_instr!("/"),
+                Opcode::Mul => attempt_binary_instr!("*"),
+                Opcode::Mod => attempt_binary_instr!("%"),
+                Opcode::Pow => attempt_binary_instr!("**"),
+                Opcode::BitAnd => attempt_binary_instr!("&"),
+                Opcode::BitOr => attempt_binary_instr!("|"),
+                Opcode::BitXor => attempt_binary_instr!("^"),
+                Opcode::ShiftLeft => attempt_binary_instr!("<<"),
+                Opcode::ShiftRight => attempt_binary_instr!(">>"),
+                Opcode::UnsignedShiftRight => attempt_binary_instr!(">>>"),
+                Opcode::Eq => attempt_binary_instr!("=="),
+                Opcode::NotEq => attempt_binary_instr!("!="),
+                Opcode::StrictEq => attempt_binary_instr!("==="),
+                Opcode::StrictNotEq => attempt_binary_instr!("!=="),
+                Opcode::GreaterThan => attempt_binary_instr!(">"),
+                Opcode::GreaterThanOrEq => attempt_binary_instr!(">="),
+                Opcode::LessThan => attempt_binary_instr!("<"),
+                Opcode::LessThanOrEq => attempt_binary_instr!("<="),
+                Opcode::In => attempt_binary_instr!("in"),
+                Opcode::InstanceOf => attempt_binary_instr!("instanceof"),
+                Opcode::LogicalAnd => todo!(), // |
+                Opcode::LogicalOr => todo!(),  // |- take into account lazy evaluation compilation
+                Opcode::Coalesce => todo!(),   // |
+                _ => (),
+            }
+        }
 
         match opcode {
             Opcode::Nop => {}
