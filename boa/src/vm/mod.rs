@@ -160,7 +160,7 @@ impl Context {
         #[cfg(feature = "instrumentation")]
         if let EvaluationMode::BaseEvaluation = self.instrumentation_conf.mode() {
             match opcode {
-                // binary instrumentation
+                // Binary instrumentation
                 Opcode::Add => attempt_binary_instr!("+"),
                 Opcode::Sub => attempt_binary_instr!("-"),
                 Opcode::Div => attempt_binary_instr!("/"),
@@ -186,7 +186,7 @@ impl Context {
                 Opcode::LogicalAnd => todo!(), // |
                 Opcode::LogicalOr => todo!(),  // |- take into account lazy evaluation compilation
                 Opcode::Coalesce => todo!(),   // |
-
+                // Read instrumentation
                 Opcode::GetName | Opcode::GetNameOrUndefined => {
                     if let Some(traps) = &mut self.instrumentation_conf.traps {
                         let traps = traps.clone();
@@ -212,6 +212,225 @@ impl Context {
                                     Ok(result) => {
                                         self.instrumentation_conf.set_mode_base();
                                         self.vm.push(result);
+                                        return Ok(false);
+                                    }
+                                    Err(v) => {
+                                        eprintln!("Instrumentation: Uncaught {}", v.display());
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+                // Write instrumentation
+                Opcode::DefVar => {
+                    if let Some(traps) = &mut self.instrumentation_conf.traps {
+                        let traps = traps.clone();
+                        if let Some(ref trap) = traps.write_trap {
+                            if let Some(advice) = self.instrumentation_conf.advice() {
+                                let index = self.vm.read::<u32>();
+                                let name = self.vm.frame().code.variables[index as usize];
+                                if !self.has_binding(name)? {
+                                    self.instrumentation_conf.set_mode_meta();
+
+                                    let js_name: JsValue =
+                                        self.interner().resolve(name).unwrap().clone().into();
+
+                                    let result =
+                                        self.call(trap, &advice, &[JsValue::Undefined, js_name]);
+
+                                    match result {
+                                        Ok(value) => {
+                                            self.instrumentation_conf.set_mode_base();
+                                            self.create_mutable_binding(
+                                                name,
+                                                false,
+                                                VariableScope::Function,
+                                            )?;
+                                            self.initialize_binding(name, value)?;
+                                            return Ok(false);
+                                        }
+                                        Err(v) => {
+                                            eprintln!("Instrumentation: Uncaught {}", v.display());
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+                Opcode::DefInitArg => (), // TODO: determine if this would ever be needed
+                // Opcode::DefVar => (), // TODO
+                Opcode::DefInitVar => {
+                    if let Some(traps) = &mut self.instrumentation_conf.traps {
+                        let traps = traps.clone();
+                        if let Some(ref trap) = traps.write_trap {
+                            if let Some(advice) = self.instrumentation_conf.advice() {
+                                self.instrumentation_conf.set_mode_meta();
+
+                                let index = self.vm.read::<u32>();
+                                let name = self.vm.frame().code.variables[index as usize];
+                                let value = self.vm.pop();
+
+                                let js_name: JsValue =
+                                    self.interner().resolve(name).unwrap().clone().into();
+
+                                let result = self.call(trap, &advice, &[value, js_name]);
+
+                                match result {
+                                    Ok(value) => {
+                                        self.instrumentation_conf.set_mode_base();
+                                        if self.has_binding(name)? {
+                                            self.set_mutable_binding(name, value, self.strict())?;
+                                        } else {
+                                            self.create_mutable_binding(
+                                                name,
+                                                false,
+                                                VariableScope::Function,
+                                            )?;
+                                            self.initialize_binding(name, value)?;
+                                        }
+                                        return Ok(false);
+                                    }
+                                    Err(v) => {
+                                        eprintln!("Instrumentation: Uncaught {}", v.display());
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+                Opcode::DefLet => {
+                    if let Some(traps) = &mut self.instrumentation_conf.traps {
+                        let traps = traps.clone();
+                        if let Some(ref trap) = traps.write_trap {
+                            if let Some(advice) = self.instrumentation_conf.advice() {
+                                self.instrumentation_conf.set_mode_meta();
+
+                                let index = self.vm.read::<u32>();
+                                let name = self.vm.frame().code.variables[index as usize];
+
+                                let js_name: JsValue =
+                                    self.interner().resolve(name).unwrap().clone().into();
+
+                                let result =
+                                    self.call(trap, &advice, &[JsValue::Undefined, js_name]);
+
+                                match result {
+                                    Ok(value) => {
+                                        self.instrumentation_conf.set_mode_base();
+                                        self.create_mutable_binding(
+                                            name,
+                                            false,
+                                            VariableScope::Block,
+                                        )?;
+                                        self.initialize_binding(name, value)?;
+
+                                        return Ok(false);
+                                    }
+                                    Err(v) => {
+                                        eprintln!("Instrumentation: Uncaught {}", v.display());
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+                Opcode::DefInitLet => {
+                    if let Some(traps) = &mut self.instrumentation_conf.traps {
+                        let traps = traps.clone();
+                        if let Some(ref trap) = traps.write_trap {
+                            if let Some(advice) = self.instrumentation_conf.advice() {
+                                self.instrumentation_conf.set_mode_meta();
+
+                                let index = self.vm.read::<u32>();
+                                let name = self.vm.frame().code.variables[index as usize];
+                                let value = self.vm.pop();
+
+                                let js_name: JsValue =
+                                    self.interner().resolve(name).unwrap().clone().into();
+
+                                let result = self.call(trap, &advice, &[value, js_name]);
+
+                                match result {
+                                    Ok(value) => {
+                                        self.instrumentation_conf.set_mode_base();
+                                        self.create_mutable_binding(
+                                            name,
+                                            false,
+                                            VariableScope::Block,
+                                        )?;
+                                        self.initialize_binding(name, value)?;
+
+                                        return Ok(false);
+                                    }
+                                    Err(v) => {
+                                        eprintln!("Instrumentation: Uncaught {}", v.display());
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+                Opcode::DefInitConst => {
+                    if let Some(traps) = &mut self.instrumentation_conf.traps {
+                        let traps = traps.clone();
+                        if let Some(ref trap) = traps.write_trap {
+                            if let Some(advice) = self.instrumentation_conf.advice() {
+                                self.instrumentation_conf.set_mode_meta();
+
+                                let index = self.vm.read::<u32>();
+                                let value = self.vm.pop();
+                                let name = self.vm.frame().code.variables[index as usize];
+
+                                let js_name: JsValue =
+                                    self.interner().resolve(name).unwrap().clone().into();
+
+                                let result = self.call(trap, &advice, &[value, js_name]);
+
+                                match result {
+                                    Ok(value) => {
+                                        self.instrumentation_conf.set_mode_base();
+                                        self.create_immutable_binding(
+                                            name,
+                                            true,
+                                            VariableScope::Block,
+                                        )?;
+                                        self.initialize_binding(name, value)?;
+                                        return Ok(false);
+                                    }
+                                    Err(v) => {
+                                        eprintln!("Instrumentation: Uncaught {}", v.display());
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+                Opcode::SetName => {
+                    if let Some(traps) = &mut self.instrumentation_conf.traps {
+                        let traps = traps.clone();
+                        if let Some(ref trap) = traps.write_trap {
+                            if let Some(advice) = self.instrumentation_conf.advice() {
+                                self.instrumentation_conf.set_mode_meta();
+
+                                let index = self.vm.read::<u32>();
+                                let value = self.vm.pop();
+                                let name = self.vm.frame().code.variables[index as usize];
+
+                                let js_name: JsValue =
+                                    self.interner().resolve(name).unwrap().clone().into();
+
+                                let result = self.call(trap, &advice, &[value, js_name]);
+
+                                match result {
+                                    Ok(result) => {
+                                        self.instrumentation_conf.set_mode_base();
+                                        self.set_mutable_binding(
+                                            name,
+                                            result,
+                                            self.strict() || self.vm.frame().code.strict,
+                                        )?;
                                         return Ok(false);
                                     }
                                     Err(v) => {
