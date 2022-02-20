@@ -154,6 +154,34 @@ impl Context {
         }
 
         #[cfg(feature = "instrumentation")]
+        macro_rules! attempt_unary_instr {
+            ($op_string: literal) => {
+                if let Some(traps) = &mut self.instrumentation_conf.traps {
+                    let traps = traps.clone();
+                    if let Some(ref trap) = traps.unary_trap {
+                        if let Some(advice) = self.instrumentation_conf.advice() {
+                            self.instrumentation_conf.set_mode_meta();
+
+                            let value = self.vm.pop();
+                            let result = self.call(trap, &advice, &[$op_string.into(), value]);
+
+                            match result {
+                                Ok(result) => {
+                                    self.instrumentation_conf.set_mode_base();
+                                    self.vm.push(result);
+                                    return Ok(false);
+                                }
+                                Err(v) => {
+                                    eprintln!("Instrumentation: Uncaught {}", v.display());
+                                }
+                            }
+                        }
+                    }
+                }
+            };
+        }
+
+        #[cfg(feature = "instrumentation")]
         if let EvaluationMode::BaseEvaluation = self.instrumentation_conf.mode() {
             match opcode {
                 // Binary instrumentation
@@ -604,6 +632,15 @@ impl Context {
                         }
                     }
                 }
+                // Unary operations
+                Opcode::Void => attempt_unary_instr!("void"),
+                Opcode::TypeOf => attempt_unary_instr!("typeof"),
+                Opcode::Pos => attempt_unary_instr!("+"),
+                Opcode::Neg => attempt_unary_instr!("-"),
+                Opcode::Inc => attempt_unary_instr!("++"),
+                Opcode::Dec => attempt_unary_instr!("--"),
+                Opcode::LogicalNot => attempt_unary_instr!("!"),
+                Opcode::BitNot => attempt_unary_instr!("~"),
                 _ => (),
             }
         }
