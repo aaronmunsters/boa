@@ -71,6 +71,7 @@ pub struct Traps {
     pub write_trap: Option<Box<JsValue>>,
     pub unary_trap: Option<Box<JsValue>>,
     pub binary_trap: Option<Box<JsValue>>,
+    pub primitive_trap: Option<Box<JsValue>>,
 }
 
 #[cfg(feature = "instrumentation")]
@@ -84,6 +85,7 @@ impl Traps {
             write_trap: Self::extract_trap(advice, "write", context),
             unary_trap: Self::extract_trap(advice, "unary", context),
             binary_trap: Self::extract_trap(advice, "binary", context),
+            primitive_trap: Self::extract_trap(advice, "primitive", context),
         }
     }
 

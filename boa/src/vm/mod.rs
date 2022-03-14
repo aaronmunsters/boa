@@ -144,7 +144,7 @@ impl Context {
                                     return Ok(false);
                                 }
                                 Err(v) => {
-                                    eprintln!("Instrumentation: Uncaught {}", v.display());
+                                    panic!("Instrumentation: Uncaught {}", v.display());
                                 }
                             }
                         }
@@ -172,7 +172,7 @@ impl Context {
                                     return Ok(false);
                                 }
                                 Err(v) => {
-                                    eprintln!("Instrumentation: Uncaught {}", v.display());
+                                    panic!("Instrumentation: Uncaught {}", v.display());
                                 }
                             }
                         }
@@ -184,6 +184,45 @@ impl Context {
         #[cfg(feature = "instrumentation")]
         if let EvaluationMode::BaseEvaluation = self.instrumentation_conf.mode() {
             match opcode {
+                // Unary instrumentation
+                Opcode::PushUndefined
+                | Opcode::PushNull
+                | Opcode::PushTrue
+                | Opcode::PushFalse
+                | Opcode::PushZero
+                | Opcode::PushOne
+                | Opcode::PushInt8
+                | Opcode::PushInt16
+                | Opcode::PushInt32
+                | Opcode::PushRational
+                | Opcode::PushNaN
+                | Opcode::PushPositiveInfinity
+                | Opcode::PushNegativeInfinity
+                | Opcode::PushLiteral => {
+                    if let Some(traps) = &mut self.instrumentation_conf.traps {
+                        let traps = traps.clone();
+                        if let Some(ref trap) = traps.primitive_trap {
+                            if let Some(advice) = self.instrumentation_conf.advice() {
+                                self.instrumentation_conf.set_mode_meta();
+                                self.vm.frame_mut().pc -= 1;
+                                let _ = self.execute_instruction();
+                                let value = self.vm.pop();
+                                let result = self.call(trap, &advice, &[value]);
+
+                                match result {
+                                    Ok(result) => {
+                                        self.instrumentation_conf.set_mode_base();
+                                        self.vm.push(result);
+                                        return Ok(false);
+                                    }
+                                    Err(v) => {
+                                        panic!("Instrumentation: Uncaught {}", v.display());
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
                 // Binary instrumentation
                 Opcode::Add => attempt_binary_instr!("+"),
                 Opcode::Sub => attempt_binary_instr!("-"),
@@ -269,7 +308,7 @@ impl Context {
                                         return Ok(false);
                                     }
                                     Err(v) => {
-                                        eprintln!("Instrumentation: Uncaught {}", v.display());
+                                        panic!("Instrumentation: Uncaught {}", v.display());
                                     }
                                 }
                             }
@@ -320,7 +359,7 @@ impl Context {
                                         return Ok(false);
                                     }
                                     Err(v) => {
-                                        eprintln!("Instrumentation: Uncaught {}", v.display());
+                                        panic!("Instrumentation: Uncaught {}", v.display());
                                     }
                                 }
                             }
@@ -348,7 +387,6 @@ impl Context {
 
                                 match result {
                                     Ok(value) => {
-                                        self.instrumentation_conf.set_mode_base();
                                         if binding_locator.is_global() {
                                             let key = self
                                                 .interner()
@@ -364,10 +402,11 @@ impl Context {
                                                 value,
                                             );
                                         }
+                                        self.instrumentation_conf.set_mode_base();
                                         return Ok(false);
                                     }
                                     Err(v) => {
-                                        eprintln!("Instrumentation: Uncaught {}", v.display());
+                                        panic!("Instrumentation: Uncaught {}", v.display());
                                     }
                                 }
                             }
@@ -403,14 +442,14 @@ impl Context {
                                         return Ok(false);
                                     }
                                     Err(v) => {
-                                        eprintln!("Instrumentation: Uncaught {}", v.display());
+                                        panic!("Instrumentation: Uncaught {}", v.display());
                                     }
                                 }
                             }
                         }
                     }
                 }
-                // TODO: Opcode::DefInitArg - determine if this makes sense?
+                // // TODO: Opcode::DefInitArg - determine if this makes sense?
                 Opcode::DefInitLet | Opcode::DefInitConst => {
                     if let Some(traps) = &mut self.instrumentation_conf.traps {
                         let traps = traps.clone();
@@ -439,7 +478,7 @@ impl Context {
                                         return Ok(false);
                                     }
                                     Err(v) => {
-                                        eprintln!("Instrumentation: Uncaught {}", v.display());
+                                        panic!("Instrumentation: Uncaught {}", v.display());
                                     }
                                 }
                             }
@@ -512,7 +551,7 @@ impl Context {
                                         return Ok(false);
                                     }
                                     Err(v) => {
-                                        eprintln!("Instrumentation: Uncaught {}", v.display());
+                                        panic!("Instrumentation: Uncaught {}", v.display());
                                     }
                                 }
                             }
@@ -543,7 +582,7 @@ impl Context {
                                         return Ok(false);
                                     }
                                     Err(v) => {
-                                        eprintln!("Instrumentation: Uncaught {}", v.display());
+                                        panic!("Instrumentation: Uncaught {}", v.display());
                                     }
                                 }
                             }
@@ -569,7 +608,7 @@ impl Context {
                                         return Ok(false);
                                     }
                                     Err(v) => {
-                                        eprintln!("Instrumentation: Uncaught {}", v.display());
+                                        panic!("Instrumentation: Uncaught {}", v.display());
                                     }
                                 }
                             }
@@ -599,7 +638,7 @@ impl Context {
                                         return Ok(false);
                                     }
                                     Err(v) => {
-                                        eprintln!("Instrumentation: Uncaught {}", v.display());
+                                        panic!("Instrumentation: Uncaught {}", v.display());
                                     }
                                 }
                             }
@@ -625,7 +664,7 @@ impl Context {
                                         return Ok(false);
                                     }
                                     Err(v) => {
-                                        eprintln!("Instrumentation: Uncaught {}", v.display());
+                                        panic!("Instrumentation: Uncaught {}", v.display());
                                     }
                                 }
                             }
