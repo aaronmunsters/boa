@@ -1,23 +1,26 @@
 {
   "scripts": {
     "build": "webpack",
-    "serve": "webpack-dev-server"
+    "serve": "webpack-dev-server",
+    "build:prod": "webpack --mode=production"
   },
   "devDependencies": {
     "@wasm-tool/wasm-pack-plugin": "^1.6.0",
     "bootstrap": "^5.1.3",
     "clean-webpack-plugin": "^4.0.0",
     "copy-webpack-plugin": "^10.2.4",
-    "css-loader": "^6.6.0",
+    "css-loader": "^6.7.1",
     "file-loader": "^6.2.0",
     "html-webpack-plugin": "^5.5.0",
-    "prettier": "^2.5.1",
+    "monaco-editor-webpack-plugin": "^7.0.1",
+    "prettier": "^2.6.1",
     "style-loader": "^3.3.1",
+    "terser-webpack-plugin": "^5.3.1",
     "webpack": "^5.70.0",
     "webpack-cli": "^4.9.2",
     "webpack-dev-server": "^4.7.4"
   },
   "dependencies": {
-    "monaco-editor": "^0.32.1"
+    "monaco-editor": "^0.33.0"
   }
 }

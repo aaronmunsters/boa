@@ -1,6 +1,6 @@
 [package]
 name = "boa_engine"
-version = "0.13.0"
+version = "0.14.0"
 edition = "2021"
 rust-version = "1.58"
 authors = ["boa-dev"]
@@ -9,24 +9,7 @@ repository = "https://github.com/boa-dev/boa"
 keywords = ["javascript", "js", "compiler", "lexer", "parser"]
 categories = ["parser-implementations", "compilers"]
 license = "Unlicense/MIT"
-exclude = [
-    "../.vscode/*",
-    "../.editorconfig",
-    "../test262/*",
-    "../node_modules/*",
-    "../target/*",
-    "../dist/*",
-    "../.github/*",
-    "../assets/*",
-    "../docs/*",
-    "../*.js",
-    "../test_ignore.txt",
-    "../yarn.lock",
-    "../package.json",
-    "../index.html",
-    "../tests/*",
-    "../.github/*",
-]
+readme = "../README.md"
 
 [features]
 default = ["instrumentation"]
@@ -38,11 +21,11 @@ console = []
 instrumentation = []
 
 [dependencies]
-boa_unicode = { path = "../boa_unicode", version = "0.13.0" }
-boa_interner = { path = "../boa_interner", version = "0.13.0" }
-boa_gc = { path = "../boa_gc", version = "0.13.0" }
+boa_unicode = { path = "../boa_unicode", version = "0.14.0" }
+boa_interner = { path = "../boa_interner", version = "0.14.0" }
+boa_gc = { path = "../boa_gc", version = "0.14.0" }
 gc = { version = "0.4.1" }
-boa_profiler = { path = "../boa_profiler", version = "0.13.0" }
+boa_profiler = { path = "../boa_profiler", version = "0.14.0" }
 serde = { version = "1.0.136", features = ["derive", "rc"] }
 serde_json = "1.0.79"
 rand = "0.8.5"
@@ -52,12 +35,12 @@ rustc-hash = "1.1.0"
 num-bigint = { version = "0.4.3", features = ["serde"] }
 num-integer = "0.1.44"
 bitflags = "1.3.2"
-indexmap = "1.8.0"
+indexmap = "1.8.1"
 ryu-js = "0.2.2"
 chrono = "0.4.19"
 fast-float = "0.2.0"
 unicode-normalization = "0.1.19"
-dyn-clone = "1.0.4"
+dyn-clone = "1.0.5"
 once_cell = "1.10.0"
 tap = "1.0.1"
 
