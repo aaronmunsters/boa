@@ -603,8 +603,13 @@ impl Context {
 
                                 let object = self.vm.pop();
                                 let key = self.vm.pop();
+                                let object = if let Some(object) = object.as_object() {
+                                    object.clone()
+                                } else {
+                                    object.to_object(self)?
+                                };
 
-                                let result = self.call(trap, &advice, &[object, key]);
+                                let result = self.call(trap, &advice, &[object.into(), key]);
 
                                 match result {
                                     Ok(value) => {
@@ -632,10 +637,16 @@ impl Context {
 
                                 let object = self.vm.pop();
                                 let value = self.vm.pop();
+                                let object = if let Some(object) = object.as_object() {
+                                    object.clone()
+                                } else {
+                                    object.to_object(self)?
+                                };
+
                                 let name = self.vm.frame().code.variables[index as usize];
                                 let js_name = self.interner().resolve_expect(name).into();
 
-                                let result = self.call(trap, &advice, &[object, js_name, value]);
+                                let result = self.call(trap, &advice, &[object.into(), js_name, value]);
 
                                 match result {
                                     Ok(_value) => {
@@ -660,8 +671,13 @@ impl Context {
                                 let object = self.vm.pop();
                                 let key = self.vm.pop();
                                 let value = self.vm.pop();
+                                let object = if let Some(object) = object.as_object() {
+                                    object.clone()
+                                } else {
+                                    object.to_object(self)?
+                                };
 
-                                let result = self.call(trap, &advice, &[object, key, value]);
+                                let result = self.call(trap, &advice, &[object.into(), key, value]);
 
                                 match result {
                                     Ok(_value) => {
