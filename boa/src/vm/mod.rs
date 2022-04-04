@@ -568,12 +568,17 @@ impl Context {
 
                                 let index = self.vm.read::<u32>();
                                 let value = self.vm.pop();
+                                let object = if let Some(object) = value.as_object() {
+                                    object.clone()
+                                } else {
+                                    value.to_object(self)?
+                                };
 
                                 let name = self.vm.frame().code.variables[index as usize];
                                 let js_name: JsValue =
                                     self.interner().resolve_expect(name).clone().into();
 
-                                let result = self.call(trap, &advice, &[value, js_name]);
+                                let result = self.call(trap, &advice, &[object.into(), js_name]);
 
                                 match result {
                                     Ok(value) => {
