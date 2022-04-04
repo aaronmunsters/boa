@@ -43,6 +43,13 @@ impl TestSuite {
                 .collect()
         };
 
+        let mut features = Vec::new();
+        for test_iter in self.tests.iter() {
+            for feature_iter in test_iter.features.iter() {
+                features.push(feature_iter.to_string());
+            }
+        }
+
         if verbose != 0 {
             println!();
         }
@@ -67,6 +74,7 @@ impl TestSuite {
             passed += suite.passed;
             ignored += suite.ignored;
             panic += suite.panic;
+            features.append(&mut suite.features.clone());
         }
 
         if verbose != 0 {
@@ -95,6 +103,7 @@ impl TestSuite {
             panic,
             suites,
             tests,
+            features,
         }
     }
 }
@@ -180,9 +189,13 @@ impl Test {
                         self.name
                     );
 
-                    let mut interner = Interner::default();
-                    match Parser::new(self.content.as_bytes(), strict).parse_all(&mut interner) {
-                        Ok(n) => (false, format!("{n:?}")),
+                    let mut context = Context::default();
+                    context.set_strict_mode(strict);
+                    match context.parse(self.content.as_bytes()) {
+                        Ok(statement_list) => match context.compile(&statement_list) {
+                            Ok(_) => (false, "StatementList compilation should fail".to_owned()),
+                            Err(e) => (true, format!("Uncaught {e:?}")),
+                        },
                         Err(e) => (true, format!("Uncaught {e}")),
                     }
                 }
