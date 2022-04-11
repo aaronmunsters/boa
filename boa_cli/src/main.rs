@@ -103,7 +103,7 @@ struct Opt {
     vi_mode: bool,
 
     #[cfg(feature = "instrumentation")]
-    #[structopt(long = "instrumentation", short = "i", parse(from_os_str))]
+    #[structopt(long = "instrumentation", short = 'i', parse(from_os_str))]
     advice: Option<PathBuf>,
 }
 

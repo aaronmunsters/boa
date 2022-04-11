@@ -593,7 +593,7 @@ impl Context {
                                     value.to_object(self)?
                                 };
 
-                                let name = self.vm.frame().code.variables[index as usize];
+                                let name = self.vm.frame().code.names[index as usize];
                                 let js_name: JsValue =
                                     self.interner().resolve_expect(name).clone().into();
 
@@ -662,7 +662,7 @@ impl Context {
                                     object.to_object(self)?
                                 };
 
-                                let name = self.vm.frame().code.variables[index as usize];
+                                let name = self.vm.frame().code.names[index as usize];
                                 let js_name = self.interner().resolve_expect(name).into();
 
                                 let result = self.call(trap, &advice, &[object.into(), js_name, value]);
