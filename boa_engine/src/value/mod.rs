@@ -28,6 +28,12 @@ use std::{
     str::FromStr,
 };
 
+#[cfg(feature = "instrumentation")]
+use crate::{
+    object::FunctionBuilder,
+    instrumentation::EvaluationMode
+};
+
 mod conversions;
 pub(crate) mod display;
 mod equality;
@@ -332,6 +338,63 @@ impl JsValue {
         context: &mut Context,
         preferred_type: PreferredType,
     ) -> JsResult<Self> {
+        #[cfg(feature = "instrumentation")]
+        if let EvaluationMode::BaseEvaluation = context.instrumentation_conf.mode() {
+            if let Some(traps) = &mut context.instrumentation_conf.traps {
+                let traps = traps.clone();
+                if let Some(ref trap) = traps.to_primitive_trap {
+                    if let Some(advice) = context.instrumentation_conf.advice() {
+                        context.instrumentation_conf.set_mode_meta();
+
+                        let preferred_type_string = match preferred_type {
+                            PreferredType::Default => "default",
+                            PreferredType::String => "string",
+                            PreferredType::Number => "number",
+                        };
+
+                        let preferred_type_symbol = context.interner_mut().get_or_intern(preferred_type_string);
+                        let preferred_type_string = context.interner().resolve_expect(preferred_type_symbol);
+                        let preferred_type_js_value = JsValue::from(preferred_type_string);
+
+                        let to_primitive_hook = FunctionBuilder::closure(context, |_this: &JsValue, args: &[JsValue], context: &mut Context| {
+                            let value: &JsValue = match args.get(0) {
+                                Some(v) => v,
+                                None => panic!("Instrumentation: Uncaught: to_primitive hook expects 2 arguments"),
+                            };
+
+                            let preferred_type: PreferredType = match args.get(1) {
+                                Some(v) => match v.as_string().expect("Instrumentation: Uncaught: to_primitive second argument should be a string").as_str() {
+                                    "default" => PreferredType::Default,
+                                    "string" => PreferredType::String,
+                                    "number" => PreferredType::Number,
+                                    _ => panic!("Instrumentation: Uncaught: to_primitive hook expects 2 arguments"),    
+                                },
+                                None => panic!("Instrumentation: Uncaught: to_primitive hook expects 2 arguments"),
+                            };
+
+                            Self::to_primitive(value, context, preferred_type)
+                        }).build();
+                        
+                        let result = context.call(trap, &advice, &[
+                            self.into(),
+                            preferred_type_js_value,
+                            to_primitive_hook.into(),
+                        ]);
+
+                        match result {
+                            Ok(_) => {
+                                context.instrumentation_conf.set_mode_base();
+                                return result;
+                            }
+                            Err(v) => {
+                                panic!("Instrumentation: Uncaught {}", v.display());
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
         // 1. Assert: input is an ECMAScript language value. (always a value not need to check)
         // 2. If Type(input) is Object, then
         if self.is_object() {

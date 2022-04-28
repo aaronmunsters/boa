@@ -4,9 +4,40 @@ use super::{
 };
 use crate::builtins::number::{f64_to_int32, f64_to_uint32, Number};
 
+#[cfg(feature = "instrumentation")]
+use crate::instrumentation::EvaluationMode;
+
 impl JsValue {
     #[inline]
     pub fn add(&self, other: &Self, context: &mut Context) -> JsResult<Self> {
+        #[cfg(feature = "instrumentation")]
+        if let EvaluationMode::BaseEvaluation = context.instrumentation_conf.mode() {
+            if let Some(traps) = &mut context.instrumentation_conf.traps {
+                let traps = traps.clone();
+                if let Some(ref trap) = traps.binary_trap {
+                    if let Some(advice) = context.instrumentation_conf.advice() {
+
+                        let lhs = self.to_primitive(context, PreferredType::Default)?;
+                        let rhs = other.to_primitive(context, PreferredType::Default)?;
+
+                        context.instrumentation_conf.set_mode_meta();
+
+                        let result = context.call(trap, &advice, &["+".into(), lhs, rhs]);
+
+                        match result {
+                            Ok(_) => {
+                                context.instrumentation_conf.set_mode_base();
+                                return result;
+                            }
+                            Err(v) => {
+                                panic!("Instrumentation: Uncaught {}", v.display());
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
         Ok(match (self, other) {
             // Fast path:
             // Numeric add
