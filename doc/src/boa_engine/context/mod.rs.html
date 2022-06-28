@@ -1,104 +1,109 @@
-<!DOCTYPE html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1.0"><meta name="generator" content="rustdoc"><meta name="description" content="Source of the Rust file `boa_engine&#x2F;src&#x2F;context&#x2F;mod.rs`."><meta name="keywords" content="rust, rustlang, rust-lang"><title>mod.rs - source</title><link rel="preload" as="font" type="font/woff2" crossorigin href="../../../SourceSerif4-Regular.ttf.woff2"><link rel="preload" as="font" type="font/woff2" crossorigin href="../../../FiraSans-Regular.woff2"><link rel="preload" as="font" type="font/woff2" crossorigin href="../../../FiraSans-Medium.woff2"><link rel="preload" as="font" type="font/woff2" crossorigin href="../../../SourceCodePro-Regular.ttf.woff2"><link rel="preload" as="font" type="font/woff2" crossorigin href="../../../SourceSerif4-Bold.ttf.woff2"><link rel="preload" as="font" type="font/woff2" crossorigin href="../../../SourceCodePro-Semibold.ttf.woff2"><link rel="stylesheet" type="text/css" href="../../../normalize.css"><link rel="stylesheet" type="text/css" href="../../../rustdoc.css" id="mainThemeStyle"><link rel="stylesheet" type="text/css" href="../../../ayu.css" disabled><link rel="stylesheet" type="text/css" href="../../../dark.css" disabled><link rel="stylesheet" type="text/css" href="../../../light.css" id="themeStyle"><script id="default-settings" ></script><script src="../../../storage.js"></script><script src="../../../crates.js"></script><script defer src="../../../main.js"></script><script defer src="../../../source-script.js"></script><script defer src="../../../source-files.js"></script>
-    <noscript><link rel="stylesheet" href="../../../noscript.css"></noscript><link rel="shortcut icon" href="https:&#x2F;&#x2F;raw.githubusercontent.com&#x2F;boa-dev&#x2F;boa&#x2F;main&#x2F;assets&#x2F;logo.svg"></head><body class="rustdoc source"><!--[if lte IE 11]><div class="warning">This old browser is unsupported and will most likely display funky things.</div><![endif]--><nav class="sidebar"><div class="sidebar-menu" role="button">&#9776;</div><a class="sidebar-logo" href="../../../boa_engine/index.html"><div class="logo-container"><img src="https:&#x2F;&#x2F;raw.githubusercontent.com&#x2F;boa-dev&#x2F;boa&#x2F;main&#x2F;assets&#x2F;logo.svg" alt="logo"></div>
-        </a></nav><main><div class="width-limiter"><div class="sub-container"><a class="sub-logo-container" href="../../../boa_engine/index.html"><img src="https:&#x2F;&#x2F;raw.githubusercontent.com&#x2F;boa-dev&#x2F;boa&#x2F;main&#x2F;assets&#x2F;logo.svg" alt="logo"></a><nav class="sub"><div class="theme-picker"><button id="theme-picker" aria-label="Pick another theme!" aria-haspopup="menu" title="themes"><img width="18" height="18" alt="Pick another theme!" src="../../../brush.svg"></button><div id="theme-choices" role="menu"></div></div><form class="search-form"><div class="search-container"><div><select id="crate-search"><option value="All crates">All crates</option></select><input class="search-input" name="search" autocomplete="off" spellcheck="false" placeholder="Click or press ‘S’ to search, ‘?’ for more options…" type="search"></div><button type="button" id="help-button" title="help">?</button><a id="settings-menu" href="../../../settings.html" title="settings"><img width="18" height="18" alt="Change settings" src="../../../wheel.svg"></a></div></form></nav></div><section id="main-content" class="content"><div class="example-wrap"><pre class="line-numbers"><span id="1">  1</span>
-<span id="2">  2</span>
-<span id="3">  3</span>
-<span id="4">  4</span>
-<span id="5">  5</span>
-<span id="6">  6</span>
-<span id="7">  7</span>
-<span id="8">  8</span>
-<span id="9">  9</span>
-<span id="10"> 10</span>
-<span id="11"> 11</span>
-<span id="12"> 12</span>
-<span id="13"> 13</span>
-<span id="14"> 14</span>
-<span id="15"> 15</span>
-<span id="16"> 16</span>
-<span id="17"> 17</span>
-<span id="18"> 18</span>
-<span id="19"> 19</span>
-<span id="20"> 20</span>
-<span id="21"> 21</span>
-<span id="22"> 22</span>
-<span id="23"> 23</span>
-<span id="24"> 24</span>
-<span id="25"> 25</span>
-<span id="26"> 26</span>
-<span id="27"> 27</span>
-<span id="28"> 28</span>
-<span id="29"> 29</span>
-<span id="30"> 30</span>
-<span id="31"> 31</span>
-<span id="32"> 32</span>
-<span id="33"> 33</span>
-<span id="34"> 34</span>
-<span id="35"> 35</span>
-<span id="36"> 36</span>
-<span id="37"> 37</span>
-<span id="38"> 38</span>
-<span id="39"> 39</span>
-<span id="40"> 40</span>
-<span id="41"> 41</span>
-<span id="42"> 42</span>
-<span id="43"> 43</span>
-<span id="44"> 44</span>
-<span id="45"> 45</span>
-<span id="46"> 46</span>
-<span id="47"> 47</span>
-<span id="48"> 48</span>
-<span id="49"> 49</span>
-<span id="50"> 50</span>
-<span id="51"> 51</span>
-<span id="52"> 52</span>
-<span id="53"> 53</span>
-<span id="54"> 54</span>
-<span id="55"> 55</span>
-<span id="56"> 56</span>
-<span id="57"> 57</span>
-<span id="58"> 58</span>
-<span id="59"> 59</span>
-<span id="60"> 60</span>
-<span id="61"> 61</span>
-<span id="62"> 62</span>
-<span id="63"> 63</span>
-<span id="64"> 64</span>
-<span id="65"> 65</span>
-<span id="66"> 66</span>
-<span id="67"> 67</span>
-<span id="68"> 68</span>
-<span id="69"> 69</span>
-<span id="70"> 70</span>
-<span id="71"> 71</span>
-<span id="72"> 72</span>
-<span id="73"> 73</span>
-<span id="74"> 74</span>
-<span id="75"> 75</span>
-<span id="76"> 76</span>
-<span id="77"> 77</span>
-<span id="78"> 78</span>
-<span id="79"> 79</span>
-<span id="80"> 80</span>
-<span id="81"> 81</span>
-<span id="82"> 82</span>
-<span id="83"> 83</span>
-<span id="84"> 84</span>
-<span id="85"> 85</span>
-<span id="86"> 86</span>
-<span id="87"> 87</span>
-<span id="88"> 88</span>
-<span id="89"> 89</span>
-<span id="90"> 90</span>
-<span id="91"> 91</span>
-<span id="92"> 92</span>
-<span id="93"> 93</span>
-<span id="94"> 94</span>
-<span id="95"> 95</span>
-<span id="96"> 96</span>
-<span id="97"> 97</span>
-<span id="98"> 98</span>
-<span id="99"> 99</span>
+<!DOCTYPE html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1.0"><meta name="generator" content="rustdoc"><meta name="description" content="Source of the Rust file `boa_engine/src/context/mod.rs`."><meta name="keywords" content="rust, rustlang, rust-lang"><title>mod.rs - source</title><link rel="preload" as="font" type="font/woff2" crossorigin href="../../../SourceSerif4-Regular.ttf.woff2"><link rel="preload" as="font" type="font/woff2" crossorigin href="../../../FiraSans-Regular.woff2"><link rel="preload" as="font" type="font/woff2" crossorigin href="../../../FiraSans-Medium.woff2"><link rel="preload" as="font" type="font/woff2" crossorigin href="../../../SourceCodePro-Regular.ttf.woff2"><link rel="preload" as="font" type="font/woff2" crossorigin href="../../../SourceSerif4-Bold.ttf.woff2"><link rel="preload" as="font" type="font/woff2" crossorigin href="../../../SourceCodePro-Semibold.ttf.woff2"><link rel="stylesheet" type="text/css" href="../../../normalize.css"><link rel="stylesheet" type="text/css" href="../../../rustdoc.css" id="mainThemeStyle"><link rel="stylesheet" type="text/css" href="../../../ayu.css" disabled><link rel="stylesheet" type="text/css" href="../../../dark.css" disabled><link rel="stylesheet" type="text/css" href="../../../light.css" id="themeStyle"><script id="default-settings" ></script><script src="../../../storage.js"></script><script src="../../../crates.js"></script><script defer src="../../../main.js"></script><script defer src="../../../source-script.js"></script><script defer src="../../../source-files.js"></script>
+    <noscript><link rel="stylesheet" href="../../../noscript.css"></noscript><link rel="icon" href="https://raw.githubusercontent.com/boa-dev/boa/main/assets/logo.svg"></head><body class="rustdoc source"><!--[if lte IE 11]><div class="warning">This old browser is unsupported and will most likely display funky things.</div><![endif]--><nav class="mobile-topbar"><button class="sidebar-menu-toggle">&#9776;</button><a class="sidebar-logo" href="../../../boa_engine/index.html"><div class="logo-container"><img src="https://raw.githubusercontent.com/boa-dev/boa/main/assets/logo.svg" alt="logo"></div>
+        </a><h2 class="location"></h2>
+    </nav>
+    <nav class="sidebar"><a class="sidebar-logo" href="../../../boa_engine/index.html"><div class="logo-container">
+                    <img src="https://raw.githubusercontent.com/boa-dev/boa/main/assets/logo.svg" alt="logo"></div>
+        </a></nav><main><div class="width-limiter"><div class="sub-container"><a class="sub-logo-container" href="../../../boa_engine/index.html">
+                        <img src="https://raw.githubusercontent.com/boa-dev/boa/main/assets/logo.svg" alt="logo"></a><nav class="sub"><div class="theme-picker hidden"><button id="theme-picker" aria-label="Pick another theme!" aria-haspopup="menu" title="themes"><img width="22" height="22" alt="Pick another theme!" src="../../../brush.svg"></button><div id="theme-choices" role="menu"></div></div><form class="search-form"><div class="search-container"><span></span><input class="search-input" name="search" autocomplete="off" spellcheck="false" placeholder="Click or press ‘S’ to search, ‘?’ for more options…" type="search"><button type="button" id="help-button" title="help">?</button><a id="settings-menu" href="../../../settings.html" title="settings"><img width="22" height="22" alt="Change settings" src="../../../wheel.svg"></a></div></form></nav></div><section id="main-content" class="content"><div class="example-wrap"><pre class="line-numbers"><span id="1">1</span>
+<span id="2">2</span>
+<span id="3">3</span>
+<span id="4">4</span>
+<span id="5">5</span>
+<span id="6">6</span>
+<span id="7">7</span>
+<span id="8">8</span>
+<span id="9">9</span>
+<span id="10">10</span>
+<span id="11">11</span>
+<span id="12">12</span>
+<span id="13">13</span>
+<span id="14">14</span>
+<span id="15">15</span>
+<span id="16">16</span>
+<span id="17">17</span>
+<span id="18">18</span>
+<span id="19">19</span>
+<span id="20">20</span>
+<span id="21">21</span>
+<span id="22">22</span>
+<span id="23">23</span>
+<span id="24">24</span>
+<span id="25">25</span>
+<span id="26">26</span>
+<span id="27">27</span>
+<span id="28">28</span>
+<span id="29">29</span>
+<span id="30">30</span>
+<span id="31">31</span>
+<span id="32">32</span>
+<span id="33">33</span>
+<span id="34">34</span>
+<span id="35">35</span>
+<span id="36">36</span>
+<span id="37">37</span>
+<span id="38">38</span>
+<span id="39">39</span>
+<span id="40">40</span>
+<span id="41">41</span>
+<span id="42">42</span>
+<span id="43">43</span>
+<span id="44">44</span>
+<span id="45">45</span>
+<span id="46">46</span>
+<span id="47">47</span>
+<span id="48">48</span>
+<span id="49">49</span>
+<span id="50">50</span>
+<span id="51">51</span>
+<span id="52">52</span>
+<span id="53">53</span>
+<span id="54">54</span>
+<span id="55">55</span>
+<span id="56">56</span>
+<span id="57">57</span>
+<span id="58">58</span>
+<span id="59">59</span>
+<span id="60">60</span>
+<span id="61">61</span>
+<span id="62">62</span>
+<span id="63">63</span>
+<span id="64">64</span>
+<span id="65">65</span>
+<span id="66">66</span>
+<span id="67">67</span>
+<span id="68">68</span>
+<span id="69">69</span>
+<span id="70">70</span>
+<span id="71">71</span>
+<span id="72">72</span>
+<span id="73">73</span>
+<span id="74">74</span>
+<span id="75">75</span>
+<span id="76">76</span>
+<span id="77">77</span>
+<span id="78">78</span>
+<span id="79">79</span>
+<span id="80">80</span>
+<span id="81">81</span>
+<span id="82">82</span>
+<span id="83">83</span>
+<span id="84">84</span>
+<span id="85">85</span>
+<span id="86">86</span>
+<span id="87">87</span>
+<span id="88">88</span>
+<span id="89">89</span>
+<span id="90">90</span>
+<span id="91">91</span>
+<span id="92">92</span>
+<span id="93">93</span>
+<span id="94">94</span>
+<span id="95">95</span>
+<span id="96">96</span>
+<span id="97">97</span>
+<span id="98">98</span>
+<span id="99">99</span>
 <span id="100">100</span>
 <span id="101">101</span>
 <span id="102">102</span>
@@ -726,16 +731,150 @@
 <span id="724">724</span>
 <span id="725">725</span>
 <span id="726">726</span>
+<span id="727">727</span>
+<span id="728">728</span>
+<span id="729">729</span>
+<span id="730">730</span>
+<span id="731">731</span>
+<span id="732">732</span>
+<span id="733">733</span>
+<span id="734">734</span>
+<span id="735">735</span>
+<span id="736">736</span>
+<span id="737">737</span>
+<span id="738">738</span>
+<span id="739">739</span>
+<span id="740">740</span>
+<span id="741">741</span>
+<span id="742">742</span>
+<span id="743">743</span>
+<span id="744">744</span>
+<span id="745">745</span>
+<span id="746">746</span>
+<span id="747">747</span>
+<span id="748">748</span>
+<span id="749">749</span>
+<span id="750">750</span>
+<span id="751">751</span>
+<span id="752">752</span>
+<span id="753">753</span>
+<span id="754">754</span>
+<span id="755">755</span>
+<span id="756">756</span>
+<span id="757">757</span>
+<span id="758">758</span>
+<span id="759">759</span>
+<span id="760">760</span>
+<span id="761">761</span>
+<span id="762">762</span>
+<span id="763">763</span>
+<span id="764">764</span>
+<span id="765">765</span>
+<span id="766">766</span>
+<span id="767">767</span>
+<span id="768">768</span>
+<span id="769">769</span>
+<span id="770">770</span>
+<span id="771">771</span>
+<span id="772">772</span>
+<span id="773">773</span>
+<span id="774">774</span>
+<span id="775">775</span>
+<span id="776">776</span>
+<span id="777">777</span>
+<span id="778">778</span>
+<span id="779">779</span>
+<span id="780">780</span>
+<span id="781">781</span>
+<span id="782">782</span>
+<span id="783">783</span>
+<span id="784">784</span>
+<span id="785">785</span>
+<span id="786">786</span>
+<span id="787">787</span>
+<span id="788">788</span>
+<span id="789">789</span>
+<span id="790">790</span>
+<span id="791">791</span>
+<span id="792">792</span>
+<span id="793">793</span>
+<span id="794">794</span>
+<span id="795">795</span>
+<span id="796">796</span>
+<span id="797">797</span>
+<span id="798">798</span>
+<span id="799">799</span>
+<span id="800">800</span>
+<span id="801">801</span>
+<span id="802">802</span>
+<span id="803">803</span>
+<span id="804">804</span>
+<span id="805">805</span>
+<span id="806">806</span>
+<span id="807">807</span>
+<span id="808">808</span>
+<span id="809">809</span>
+<span id="810">810</span>
+<span id="811">811</span>
+<span id="812">812</span>
+<span id="813">813</span>
+<span id="814">814</span>
+<span id="815">815</span>
+<span id="816">816</span>
+<span id="817">817</span>
+<span id="818">818</span>
+<span id="819">819</span>
+<span id="820">820</span>
+<span id="821">821</span>
+<span id="822">822</span>
+<span id="823">823</span>
+<span id="824">824</span>
+<span id="825">825</span>
+<span id="826">826</span>
+<span id="827">827</span>
+<span id="828">828</span>
+<span id="829">829</span>
+<span id="830">830</span>
+<span id="831">831</span>
+<span id="832">832</span>
+<span id="833">833</span>
+<span id="834">834</span>
+<span id="835">835</span>
+<span id="836">836</span>
+<span id="837">837</span>
+<span id="838">838</span>
+<span id="839">839</span>
+<span id="840">840</span>
+<span id="841">841</span>
+<span id="842">842</span>
+<span id="843">843</span>
+<span id="844">844</span>
+<span id="845">845</span>
+<span id="846">846</span>
+<span id="847">847</span>
+<span id="848">848</span>
+<span id="849">849</span>
+<span id="850">850</span>
+<span id="851">851</span>
+<span id="852">852</span>
 </pre><pre class="rust"><code><span class="doccomment">//! Javascript context.</span>
 
 <span class="kw">pub</span> <span class="kw">mod</span> <span class="ident">intrinsics</span>;
 
+<span class="attribute">#[<span class="ident">cfg</span>(<span class="ident">feature</span> <span class="op">=</span> <span class="string">&quot;intl&quot;</span>)]</span>
+<span class="kw">mod</span> <span class="ident">icu</span>;
+
+<span class="kw">use</span> <span class="ident">std::collections::VecDeque</span>;
+
 <span class="kw">use</span> <span class="ident">intrinsics</span>::{<span class="ident">IntrinsicObjects</span>, <span class="ident">Intrinsics</span>};
 
+<span class="attribute">#[<span class="ident">cfg</span>(<span class="ident">feature</span> <span class="op">=</span> <span class="string">&quot;console&quot;</span>)]</span>
+<span class="kw">use</span> <span class="ident"><span class="kw">crate</span>::builtins::console::Console</span>;
 <span class="kw">use</span> <span class="kw">crate</span>::{
     <span class="ident">builtins</span>::{<span class="self">self</span>, <span class="ident">function::NativeFunctionSignature</span>},
     <span class="ident">bytecompiler::ByteCompiler</span>,
     <span class="ident">class</span>::{<span class="ident">Class</span>, <span class="ident">ClassBuilder</span>},
+    <span class="ident">job::JobCallback</span>,
     <span class="ident">object</span>::{<span class="ident">FunctionBuilder</span>, <span class="ident">GlobalPropertyMap</span>, <span class="ident">JsObject</span>, <span class="ident">ObjectData</span>},
     <span class="ident">property</span>::{<span class="ident">Attribute</span>, <span class="ident">PropertyDescriptor</span>, <span class="ident">PropertyKey</span>},
     <span class="ident">realm::Realm</span>,
@@ -743,12 +882,17 @@
     <span class="ident">vm</span>::{<span class="ident">CallFrame</span>, <span class="ident">CodeBlock</span>, <span class="ident">FinallyReturn</span>, <span class="ident">GeneratorResumeKind</span>, <span class="ident">Vm</span>},
     <span class="ident">JsResult</span>, <span class="ident">JsValue</span>,
 };
+
 <span class="kw">use</span> <span class="ident">boa_gc::Gc</span>;
 <span class="kw">use</span> <span class="ident">boa_interner</span>::{<span class="ident">Interner</span>, <span class="ident">Sym</span>};
 <span class="kw">use</span> <span class="ident">boa_profiler::Profiler</span>;
 
-<span class="attribute">#[<span class="ident">cfg</span>(<span class="ident">feature</span> <span class="op">=</span> <span class="string">&quot;console&quot;</span>)]</span>
-<span class="kw">use</span> <span class="ident"><span class="kw">crate</span>::builtins::console::Console</span>;
+<span class="attribute">#[<span class="ident">cfg</span>(<span class="ident">feature</span> <span class="op">=</span> <span class="string">&quot;intl&quot;</span>)]</span>
+<span class="kw">use</span> <span class="ident">icu_provider::DataError</span>;
+
+<span class="attribute">#[<span class="ident">doc</span>(<span class="ident">inline</span>)]</span>
+<span class="attribute">#[<span class="ident">cfg</span>(<span class="ident">all</span>(<span class="ident">feature</span> <span class="op">=</span> <span class="string">&quot;intl&quot;</span>, <span class="ident">doc</span>))]</span>
+<span class="kw">pub</span> <span class="kw">use</span> <span class="ident">icu::BoaProvider</span>;
 
 <span class="doccomment">/// Javascript context. It is the primary way to interact with the runtime.</span>
 <span class="doccomment">///</span>
@@ -810,48 +954,27 @@
     <span class="doccomment">/// Intrinsic objects</span>
     <span class="ident">intrinsics</span>: <span class="ident">Intrinsics</span>,
 
-    <span class="doccomment">/// Whether or not global strict mode is active.</span>
-    <span class="ident">strict</span>: <span class="ident">bool</span>,
+    <span class="doccomment">/// ICU related utilities</span>
+    <span class="attribute">#[<span class="ident">cfg</span>(<span class="ident">feature</span> <span class="op">=</span> <span class="string">&quot;intl&quot;</span>)]</span>
+    <span class="ident">icu</span>: <span class="ident">icu::Icu</span>,
 
     <span class="kw">pub</span>(<span class="kw">crate</span>) <span class="ident">vm</span>: <span class="ident">Vm</span>,
+
+    <span class="kw">pub</span>(<span class="kw">crate</span>) <span class="ident">promise_job_queue</span>: <span class="ident">VecDeque</span><span class="op">&lt;</span><span class="ident">JobCallback</span><span class="op">&gt;</span>,
 }
 
 <span class="kw">impl</span> <span class="ident">Default</span> <span class="kw">for</span> <span class="ident">Context</span> {
     <span class="kw">fn</span> <span class="ident">default</span>() -&gt; <span class="self">Self</span> {
-        <span class="kw">let</span> <span class="kw-2">mut</span> <span class="ident">context</span> <span class="op">=</span> <span class="self">Self</span> {
-            <span class="ident">realm</span>: <span class="ident">Realm::create</span>(),
-            <span class="ident">interner</span>: <span class="ident">Interner::default</span>(),
-            <span class="attribute">#[<span class="ident">cfg</span>(<span class="ident">feature</span> <span class="op">=</span> <span class="string">&quot;console&quot;</span>)]</span>
-            <span class="ident">console</span>: <span class="ident">Console::default</span>(),
-            <span class="ident">intrinsics</span>: <span class="ident">Intrinsics::default</span>(),
-            <span class="ident">strict</span>: <span class="bool-val">false</span>,
-            <span class="ident">vm</span>: <span class="ident">Vm</span> {
-                <span class="ident">frame</span>: <span class="prelude-val">None</span>,
-                <span class="ident">stack</span>: <span class="ident">Vec::with_capacity</span>(<span class="number">1024</span>),
-                <span class="ident">trace</span>: <span class="bool-val">false</span>,
-                <span class="ident">stack_size_limit</span>: <span class="number">1024</span>,
-            },
-        };
-
-        <span class="comment">// Add new builtIns to Context Realm</span>
-        <span class="comment">// At a later date this can be removed from here and called explicitly,</span>
-        <span class="comment">// but for now we almost always want these default builtins</span>
-        <span class="ident">context</span>.<span class="ident">intrinsics</span>.<span class="ident">objects</span> <span class="op">=</span> <span class="ident">IntrinsicObjects::init</span>(<span class="kw-2">&amp;mut</span> <span class="ident">context</span>);
-        <span class="ident">context</span>.<span class="ident">create_intrinsics</span>();
-        <span class="ident">context</span>
+        <span class="ident">ContextBuilder::default</span>().<span class="ident">build</span>()
     }
 }
 
 <span class="kw">impl</span> <span class="ident">Context</span> {
-    <span class="doccomment">/// Create a new `Context`.</span>
-    <span class="attribute">#[<span class="ident">inline</span>]</span>
-    <span class="kw">pub</span> <span class="kw">fn</span> <span class="ident">new</span>(<span class="ident">interner</span>: <span class="ident">Interner</span>) -&gt; <span class="self">Self</span> {
-        <span class="self">Self</span> {
-            <span class="ident">interner</span>,
-            ..<span class="ident"><span class="self">Self</span>::default</span>()
-        }
+    <span class="doccomment">/// Create a new [`ContextBuilder`] to specify the [`Interner`] and/or</span>
+    <span class="doccomment">/// the icu data provider.</span>
+    <span class="kw">pub</span> <span class="kw">fn</span> <span class="ident">builder</span>() -&gt; <span class="ident">ContextBuilder</span> {
+        <span class="ident">ContextBuilder::default</span>()
     }
-
     <span class="doccomment">/// Gets the string interner.</span>
     <span class="attribute">#[<span class="ident">inline</span>]</span>
     <span class="kw">pub</span> <span class="kw">fn</span> <span class="ident">interner</span>(<span class="kw-2">&amp;</span><span class="self">self</span>) -&gt; <span class="kw-2">&amp;</span><span class="ident">Interner</span> {
@@ -877,18 +1000,6 @@
         <span class="kw-2">&amp;mut</span> <span class="self">self</span>.<span class="ident">console</span>
     }
 
-    <span class="doccomment">/// Returns if strict mode is currently active.</span>
-    <span class="attribute">#[<span class="ident">inline</span>]</span>
-    <span class="kw">pub</span> <span class="kw">fn</span> <span class="ident">strict</span>(<span class="kw-2">&amp;</span><span class="self">self</span>) -&gt; <span class="ident">bool</span> {
-        <span class="self">self</span>.<span class="ident">strict</span>
-    }
-
-    <span class="doccomment">/// Set the global strict mode of the context.</span>
-    <span class="attribute">#[<span class="ident">inline</span>]</span>
-    <span class="kw">pub</span> <span class="kw">fn</span> <span class="ident">set_strict_mode</span>(<span class="kw-2">&amp;mut</span> <span class="self">self</span>, <span class="ident">strict</span>: <span class="ident">bool</span>) {
-        <span class="self">self</span>.<span class="ident">strict</span> <span class="op">=</span> <span class="ident">strict</span>;
-    }
-
     <span class="doccomment">/// Sets up the default global objects within Global</span>
     <span class="attribute">#[<span class="ident">inline</span>]</span>
     <span class="kw">fn</span> <span class="ident">create_intrinsics</span>(<span class="kw-2">&amp;mut</span> <span class="self">self</span>) {
@@ -906,36 +1017,59 @@
         )
     }
 
+    <span class="doccomment">/// Parse the given source text.</span>
     <span class="kw">pub</span> <span class="kw">fn</span> <span class="ident">parse</span><span class="op">&lt;</span><span class="ident">S</span><span class="op">&gt;</span>(<span class="kw-2">&amp;mut</span> <span class="self">self</span>, <span class="ident">src</span>: <span class="ident">S</span>) -&gt; <span class="prelude-ty">Result</span><span class="op">&lt;</span><span class="ident">StatementList</span>, <span class="ident">ParseError</span><span class="op">&gt;</span>
     <span class="kw">where</span>
         <span class="ident">S</span>: <span class="ident">AsRef</span><span class="op">&lt;</span>[<span class="ident">u8</span>]<span class="op">&gt;</span>,
     {
-        <span class="ident">Parser::new</span>(<span class="ident">src</span>.<span class="ident">as_ref</span>(), <span class="self">self</span>.<span class="ident">strict</span>).<span class="ident">parse_all</span>(<span class="kw-2">&amp;mut</span> <span class="self">self</span>.<span class="ident">interner</span>)
+        <span class="kw">let</span> <span class="kw-2">mut</span> <span class="ident">parser</span> <span class="op">=</span> <span class="ident">Parser::new</span>(<span class="ident">src</span>.<span class="ident">as_ref</span>());
+        <span class="ident">parser</span>.<span class="ident">parse_all</span>(<span class="self">self</span>)
     }
 
-    <span class="doccomment">/// &lt;https://tc39.es/ecma262/#sec-call&gt;</span>
+    <span class="doccomment">/// Parse the given source text in strict mode.</span>
+    <span class="kw">pub</span>(<span class="kw">crate</span>) <span class="kw">fn</span> <span class="ident">parse_strict</span><span class="op">&lt;</span><span class="ident">S</span><span class="op">&gt;</span>(<span class="kw-2">&amp;mut</span> <span class="self">self</span>, <span class="ident">src</span>: <span class="ident">S</span>) -&gt; <span class="prelude-ty">Result</span><span class="op">&lt;</span><span class="ident">StatementList</span>, <span class="ident">ParseError</span><span class="op">&gt;</span>
+    <span class="kw">where</span>
+        <span class="ident">S</span>: <span class="ident">AsRef</span><span class="op">&lt;</span>[<span class="ident">u8</span>]<span class="op">&gt;</span>,
+    {
+        <span class="kw">let</span> <span class="kw-2">mut</span> <span class="ident">parser</span> <span class="op">=</span> <span class="ident">Parser::new</span>(<span class="ident">src</span>.<span class="ident">as_ref</span>());
+        <span class="ident">parser</span>.<span class="ident">set_strict</span>();
+        <span class="ident">parser</span>.<span class="ident">parse_all</span>(<span class="self">self</span>)
+    }
+
+    <span class="doccomment">/// `Call ( F, V [ , argumentsList ] )`</span>
+    <span class="doccomment">///</span>
+    <span class="doccomment">/// The abstract operation `Call` takes arguments `F` (an ECMAScript language value) and `V`</span>
+    <span class="doccomment">/// (an ECMAScript language value) and optional argument `argumentsList` (a `List` of</span>
+    <span class="doccomment">/// ECMAScript language values) and returns either a normal completion containing an ECMAScript</span>
+    <span class="doccomment">/// language value or a throw completion. It is used to call the `[[Call]]` internal method of</span>
+    <span class="doccomment">/// a function object. `F` is the function object, `V` is an ECMAScript language value that is</span>
+    <span class="doccomment">/// the `this` value of the `[[Call]]`, and `argumentsList` is the value passed to the</span>
+    <span class="doccomment">/// corresponding argument of the internal method. If `argumentsList` is not present, a new</span>
+    <span class="doccomment">/// empty `List` is used as its value.</span>
+    <span class="doccomment">///</span>
+    <span class="doccomment">/// More information:</span>
+    <span class="doccomment">///  - [ECMA reference][spec]</span>
+    <span class="doccomment">///</span>
+    <span class="doccomment">/// [spec]: https://tc39.es/ecma262/#sec-call</span>
     <span class="attribute">#[<span class="ident">inline</span>]</span>
     <span class="kw">pub</span>(<span class="kw">crate</span>) <span class="kw">fn</span> <span class="ident">call</span>(
         <span class="kw-2">&amp;mut</span> <span class="self">self</span>,
         <span class="ident">f</span>: <span class="kw-2">&amp;</span><span class="ident">JsValue</span>,
-        <span class="ident">this</span>: <span class="kw-2">&amp;</span><span class="ident">JsValue</span>,
-        <span class="ident">args</span>: <span class="kw-2">&amp;</span>[<span class="ident">JsValue</span>],
+        <span class="ident">v</span>: <span class="kw-2">&amp;</span><span class="ident">JsValue</span>,
+        <span class="ident">arguments_list</span>: <span class="kw-2">&amp;</span>[<span class="ident">JsValue</span>],
     ) -&gt; <span class="ident">JsResult</span><span class="op">&lt;</span><span class="ident">JsValue</span><span class="op">&gt;</span> {
+        <span class="comment">// 1. If argumentsList is not present, set argumentsList to a new empty List.</span>
+        <span class="comment">// 2. If IsCallable(F) is false, throw a TypeError exception.</span>
+        <span class="comment">// 3. Return ? F.[[Call]](V, argumentsList).</span>
         <span class="ident">f</span>.<span class="ident">as_callable</span>()
             .<span class="ident">ok_or_else</span>(<span class="op">|</span><span class="op">|</span> <span class="self">self</span>.<span class="ident">construct_type_error</span>(<span class="string">&quot;Value is not callable&quot;</span>))
-            .<span class="ident">and_then</span>(<span class="op">|</span><span class="ident">obj</span><span class="op">|</span> <span class="ident">obj</span>.<span class="ident">call</span>(<span class="ident">this</span>, <span class="ident">args</span>, <span class="self">self</span>))
+            .<span class="ident">and_then</span>(<span class="op">|</span><span class="ident">f</span><span class="op">|</span> <span class="ident">f</span>.<span class="ident">call</span>(<span class="ident">v</span>, <span class="ident">arguments_list</span>, <span class="self">self</span>))
     }
 
     <span class="doccomment">/// Return the global object.</span>
     <span class="attribute">#[<span class="ident">inline</span>]</span>
     <span class="kw">pub</span> <span class="kw">fn</span> <span class="ident">global_object</span>(<span class="kw-2">&amp;</span><span class="self">self</span>) -&gt; <span class="kw-2">&amp;</span><span class="ident">JsObject</span> {
         <span class="self">self</span>.<span class="ident">realm</span>.<span class="ident">global_object</span>()
-    }
-
-    <span class="doccomment">/// Return a reference to the global object string bindings.</span>
-    <span class="attribute">#[<span class="ident">inline</span>]</span>
-    <span class="kw">pub</span>(<span class="kw">crate</span>) <span class="kw">fn</span> <span class="ident">global_bindings</span>(<span class="kw-2">&amp;</span><span class="self">self</span>) -&gt; <span class="kw-2">&amp;</span><span class="ident">GlobalPropertyMap</span> {
-        <span class="self">self</span>.<span class="ident">realm</span>.<span class="ident">global_bindings</span>()
     }
 
     <span class="doccomment">/// Return a mutable reference to the global object string bindings.</span>
@@ -1375,8 +1509,8 @@
     {
         <span class="kw">let</span> <span class="ident">main_timer</span> <span class="op">=</span> <span class="ident">Profiler::global</span>().<span class="ident">start_event</span>(<span class="string">&quot;Evaluation&quot;</span>, <span class="string">&quot;Main&quot;</span>);
 
-        <span class="kw">let</span> <span class="ident">parsing_result</span> <span class="op">=</span> <span class="ident">Parser::new</span>(<span class="ident">src</span>.<span class="ident">as_ref</span>(), <span class="bool-val">false</span>)
-            .<span class="ident">parse_all</span>(<span class="kw-2">&amp;mut</span> <span class="self">self</span>.<span class="ident">interner</span>)
+        <span class="kw">let</span> <span class="ident">parsing_result</span> <span class="op">=</span> <span class="ident">Parser::new</span>(<span class="ident">src</span>.<span class="ident">as_ref</span>())
+            .<span class="ident">parse_all</span>(<span class="self">self</span>)
             .<span class="ident">map_err</span>(<span class="op">|</span><span class="ident">e</span><span class="op">|</span> <span class="ident">e</span>.<span class="ident">to_string</span>());
 
         <span class="kw">let</span> <span class="ident">statement_list</span> <span class="op">=</span> <span class="kw">match</span> <span class="ident">parsing_result</span> {
@@ -1401,6 +1535,23 @@
         <span class="kw">let</span> <span class="kw-2">mut</span> <span class="ident">compiler</span> <span class="op">=</span> <span class="ident">ByteCompiler::new</span>(<span class="ident">Sym::MAIN</span>, <span class="ident">statement_list</span>.<span class="ident">strict</span>(), <span class="self">self</span>);
         <span class="ident">compiler</span>.<span class="ident">create_declarations</span>(<span class="ident">statement_list</span>.<span class="ident">items</span>())<span class="question-mark">?</span>;
         <span class="ident">compiler</span>.<span class="ident">compile_statement_list</span>(<span class="ident">statement_list</span>.<span class="ident">items</span>(), <span class="bool-val">true</span>)<span class="question-mark">?</span>;
+        <span class="prelude-val">Ok</span>(<span class="ident">Gc::new</span>(<span class="ident">compiler</span>.<span class="ident">finish</span>()))
+    }
+
+    <span class="doccomment">/// Compile the AST into a `CodeBlock` with an additional declarative environment.</span>
+    <span class="attribute">#[<span class="ident">inline</span>]</span>
+    <span class="kw">pub</span>(<span class="kw">crate</span>) <span class="kw">fn</span> <span class="ident">compile_with_new_declarative</span>(
+        <span class="kw-2">&amp;mut</span> <span class="self">self</span>,
+        <span class="ident">statement_list</span>: <span class="kw-2">&amp;</span><span class="ident">StatementList</span>,
+        <span class="ident">strict</span>: <span class="ident">bool</span>,
+    ) -&gt; <span class="ident">JsResult</span><span class="op">&lt;</span><span class="ident">Gc</span><span class="op">&lt;</span><span class="ident">CodeBlock</span><span class="op">&gt;</span><span class="op">&gt;</span> {
+        <span class="kw">let</span> <span class="ident">_timer</span> <span class="op">=</span> <span class="ident">Profiler::global</span>().<span class="ident">start_event</span>(<span class="string">&quot;Compilation&quot;</span>, <span class="string">&quot;Main&quot;</span>);
+        <span class="kw">let</span> <span class="kw-2">mut</span> <span class="ident">compiler</span> <span class="op">=</span> <span class="ident">ByteCompiler::new</span>(<span class="ident">Sym::MAIN</span>, <span class="ident">statement_list</span>.<span class="ident">strict</span>(), <span class="self">self</span>);
+        <span class="ident">compiler</span>.<span class="ident">compile_statement_list_with_new_declarative</span>(
+            <span class="ident">statement_list</span>.<span class="ident">items</span>(),
+            <span class="bool-val">true</span>,
+            <span class="ident">strict</span> <span class="op">|</span><span class="op">|</span> <span class="ident">statement_list</span>.<span class="ident">strict</span>(),
+        )<span class="question-mark">?</span>;
         <span class="prelude-val">Ok</span>(<span class="ident">Gc::new</span>(<span class="ident">compiler</span>.<span class="ident">finish</span>()))
     }
 
@@ -1432,13 +1583,23 @@
             <span class="ident">param_count</span>: <span class="number">0</span>,
             <span class="ident">arg_count</span>: <span class="number">0</span>,
             <span class="ident">generator_resume_kind</span>: <span class="ident">GeneratorResumeKind::Normal</span>,
+            <span class="ident">thrown</span>: <span class="bool-val">false</span>,
         });
 
         <span class="self">self</span>.<span class="ident">realm</span>.<span class="ident">set_global_binding_number</span>();
         <span class="kw">let</span> <span class="ident">result</span> <span class="op">=</span> <span class="self">self</span>.<span class="ident">run</span>();
         <span class="self">self</span>.<span class="ident">vm</span>.<span class="ident">pop_frame</span>();
+        <span class="self">self</span>.<span class="ident">run_queued_jobs</span>()<span class="question-mark">?</span>;
         <span class="kw">let</span> (<span class="ident">result</span>, <span class="kw">_</span>) <span class="op">=</span> <span class="ident">result</span><span class="question-mark">?</span>;
         <span class="prelude-val">Ok</span>(<span class="ident">result</span>)
+    }
+
+    <span class="doccomment">/// Runs all the jobs in the job queue.</span>
+    <span class="kw">fn</span> <span class="ident">run_queued_jobs</span>(<span class="kw-2">&amp;mut</span> <span class="self">self</span>) -&gt; <span class="ident">JsResult</span><span class="op">&lt;</span>()<span class="op">&gt;</span> {
+        <span class="kw">while</span> <span class="kw">let</span> <span class="prelude-val">Some</span>(<span class="ident">job</span>) <span class="op">=</span> <span class="self">self</span>.<span class="ident">promise_job_queue</span>.<span class="ident">pop_front</span>() {
+            <span class="ident">job</span>.<span class="ident">call_job_callback</span>(<span class="kw-2">&amp;</span><span class="ident">JsValue::Undefined</span>, <span class="kw-2">&amp;</span>[], <span class="self">self</span>)<span class="question-mark">?</span>;
+        }
+        <span class="prelude-val">Ok</span>(())
     }
 
     <span class="doccomment">/// Return the intrinsic constructors and objects.</span>
@@ -1451,7 +1612,103 @@
     <span class="kw">pub</span> <span class="kw">fn</span> <span class="ident">set_trace</span>(<span class="kw-2">&amp;mut</span> <span class="self">self</span>, <span class="ident">trace</span>: <span class="ident">bool</span>) {
         <span class="self">self</span>.<span class="ident">vm</span>.<span class="ident">trace</span> <span class="op">=</span> <span class="ident">trace</span>;
     }
+
+    <span class="attribute">#[<span class="ident">cfg</span>(<span class="ident">feature</span> <span class="op">=</span> <span class="string">&quot;intl&quot;</span>)]</span>
+    <span class="attribute">#[<span class="ident">inline</span>]</span>
+    <span class="doccomment">/// Get the ICU related utilities</span>
+    <span class="kw">pub</span>(<span class="kw">crate</span>) <span class="kw">fn</span> <span class="ident">icu</span>(<span class="kw-2">&amp;</span><span class="self">self</span>) -&gt; <span class="kw-2">&amp;</span><span class="ident">icu::Icu</span> {
+        <span class="kw-2">&amp;</span><span class="self">self</span>.<span class="ident">icu</span>
+    }
+
+    <span class="doccomment">/// More information:</span>
+    <span class="doccomment">///  - [ECMAScript reference][spec]</span>
+    <span class="doccomment">///</span>
+    <span class="doccomment">/// [spec]: https://tc39.es/ecma262/#sec-hostenqueuepromisejob</span>
+    <span class="kw">pub</span> <span class="kw">fn</span> <span class="ident">host_enqueue_promise_job</span>(<span class="kw-2">&amp;mut</span> <span class="self">self</span>, <span class="ident">job</span>: <span class="ident">JobCallback</span> <span class="comment">/* , realm: Realm */</span>) {
+        <span class="comment">// If realm is not null ...</span>
+        <span class="comment">// TODO</span>
+        <span class="comment">// Let scriptOrModule be ...</span>
+        <span class="comment">// TODO</span>
+        <span class="self">self</span>.<span class="ident">promise_job_queue</span>.<span class="ident">push_back</span>(<span class="ident">job</span>);
+    }
+}
+<span class="doccomment">/// Builder for the [`Context`] type.</span>
+<span class="doccomment">///</span>
+<span class="doccomment">/// This builder allows custom initialization of the [`Interner`] within</span>
+<span class="doccomment">/// the context.</span>
+<span class="doccomment">/// Additionally, if the `intl` feature is enabled, [`ContextBuilder`] becomes</span>
+<span class="doccomment">/// the only way to create a new [`Context`], since now it requires a</span>
+<span class="doccomment">/// valid data provider for the `Intl` functionality.</span>
+<span class="doccomment">///</span>
+<span class="attribute">#[<span class="ident">cfg_attr</span>(
+    <span class="ident">feature</span> <span class="op">=</span> <span class="string">&quot;intl&quot;</span>,
+    <span class="ident">doc</span> <span class="op">=</span> <span class="string">&quot;The required data in a valid provider is specified in [`BoaProvider`]&quot;</span>
+)]</span>
+<span class="attribute">#[<span class="ident">derive</span>(<span class="ident">Debug</span>, <span class="ident">Default</span>)]</span>
+<span class="kw">pub</span> <span class="kw">struct</span> <span class="ident">ContextBuilder</span> {
+    <span class="ident">interner</span>: <span class="prelude-ty">Option</span><span class="op">&lt;</span><span class="ident">Interner</span><span class="op">&gt;</span>,
+    <span class="attribute">#[<span class="ident">cfg</span>(<span class="ident">feature</span> <span class="op">=</span> <span class="string">&quot;intl&quot;</span>)]</span>
+    <span class="ident">icu</span>: <span class="prelude-ty">Option</span><span class="op">&lt;</span><span class="ident">icu::Icu</span><span class="op">&gt;</span>,
+}
+
+<span class="kw">impl</span> <span class="ident">ContextBuilder</span> {
+    <span class="doccomment">/// Initializes the context [`Interner`] to the provided interner.</span>
+    <span class="doccomment">///</span>
+    <span class="doccomment">/// This is useful when you want to initialize an [`Interner`] with</span>
+    <span class="doccomment">/// a collection of words before parsing.</span>
+    <span class="attribute">#[<span class="ident">must_use</span>]</span>
+    <span class="kw">pub</span> <span class="kw">fn</span> <span class="ident">interner</span>(<span class="kw-2">mut</span> <span class="self">self</span>, <span class="ident">interner</span>: <span class="ident">Interner</span>) -&gt; <span class="self">Self</span> {
+        <span class="self">self</span>.<span class="ident">interner</span> <span class="op">=</span> <span class="prelude-val">Some</span>(<span class="ident">interner</span>);
+        <span class="self">self</span>
+    }
+
+    <span class="doccomment">/// Provides an icu data provider to the [`Context`].</span>
+    <span class="doccomment">///</span>
+    <span class="doccomment">/// This function is only available if the `intl` feature is enabled.</span>
+    <span class="attribute">#[<span class="ident">cfg</span>(<span class="ident">any</span>(<span class="ident">feature</span> <span class="op">=</span> <span class="string">&quot;intl&quot;</span>, <span class="ident">docs</span>))]</span>
+    <span class="kw">pub</span> <span class="kw">fn</span> <span class="ident">icu_provider</span>(<span class="kw-2">mut</span> <span class="self">self</span>, <span class="ident">provider</span>: <span class="ident">Box</span><span class="op">&lt;</span><span class="kw">dyn</span> <span class="ident">icu::BoaProvider</span><span class="op">&gt;</span>) -&gt; <span class="prelude-ty">Result</span><span class="op">&lt;</span><span class="self">Self</span>, <span class="ident">DataError</span><span class="op">&gt;</span> {
+        <span class="self">self</span>.<span class="ident">icu</span> <span class="op">=</span> <span class="prelude-val">Some</span>(<span class="ident">icu::Icu::new</span>(<span class="ident">provider</span>)<span class="question-mark">?</span>);
+        <span class="prelude-val">Ok</span>(<span class="self">self</span>)
+    }
+
+    <span class="doccomment">/// Creates a new [`ContextBuilder`] with a default empty [`Interner`]</span>
+    <span class="doccomment">/// and a default [`BoaProvider`] if the `intl` feature is enabled.</span>
+    <span class="kw">pub</span> <span class="kw">fn</span> <span class="ident">new</span>() -&gt; <span class="self">Self</span> {
+        <span class="ident"><span class="self">Self</span>::default</span>()
+    }
+
+    <span class="doccomment">/// Builds a new [`Context`] with the provided parameters, and defaults</span>
+    <span class="doccomment">/// all missing parameters to their default values.</span>
+    <span class="kw">pub</span> <span class="kw">fn</span> <span class="ident">build</span>(<span class="self">self</span>) -&gt; <span class="ident">Context</span> {
+        <span class="kw">let</span> <span class="kw-2">mut</span> <span class="ident">context</span> <span class="op">=</span> <span class="ident">Context</span> {
+            <span class="ident">realm</span>: <span class="ident">Realm::create</span>(),
+            <span class="ident">interner</span>: <span class="self">self</span>.<span class="ident">interner</span>.<span class="ident">unwrap_or_default</span>(),
+            <span class="attribute">#[<span class="ident">cfg</span>(<span class="ident">feature</span> <span class="op">=</span> <span class="string">&quot;console&quot;</span>)]</span>
+            <span class="ident">console</span>: <span class="ident">Console::default</span>(),
+            <span class="ident">intrinsics</span>: <span class="ident">Intrinsics::default</span>(),
+            <span class="ident">vm</span>: <span class="ident">Vm</span> {
+                <span class="ident">frame</span>: <span class="prelude-val">None</span>,
+                <span class="ident">stack</span>: <span class="ident">Vec::with_capacity</span>(<span class="number">1024</span>),
+                <span class="ident">trace</span>: <span class="bool-val">false</span>,
+                <span class="ident">stack_size_limit</span>: <span class="number">1024</span>,
+            },
+            <span class="attribute">#[<span class="ident">cfg</span>(<span class="ident">feature</span> <span class="op">=</span> <span class="string">&quot;intl&quot;</span>)]</span>
+            <span class="ident">icu</span>: <span class="self">self</span>.<span class="ident">icu</span>.<span class="ident">unwrap_or_else</span>(<span class="op">|</span><span class="op">|</span> {
+                <span class="comment">// TODO: Replace with a more fitting default</span>
+                <span class="ident">icu::Icu::new</span>(<span class="ident">Box::new</span>(<span class="ident">icu_testdata::get_provider</span>()))
+                    .<span class="ident">expect</span>(<span class="string">&quot;Failed to initialize default icu data.&quot;</span>)
+            }),
+            <span class="ident">promise_job_queue</span>: <span class="ident">VecDeque::new</span>(),
+        };
+
+        <span class="comment">// Add new builtIns to Context Realm</span>
+        <span class="comment">// At a later date this can be removed from here and called explicitly,</span>
+        <span class="comment">// but for now we almost always want these default builtins</span>
+        <span class="ident">context</span>.<span class="ident">intrinsics</span>.<span class="ident">objects</span> <span class="op">=</span> <span class="ident">IntrinsicObjects::init</span>(<span class="kw-2">&amp;mut</span> <span class="ident">context</span>);
+        <span class="ident">context</span>.<span class="ident">create_intrinsics</span>();
+        <span class="ident">context</span>
+    }
 }
 </code></pre></div>
-</section><section id="search" class="content hidden"></section></div></main><div id="rustdoc-vars" data-root-path="../../../" data-current-crate="boa_engine" data-themes="ayu,dark,light" data-resource-suffix="" data-rustdoc-version="1.59.0 (9d1b2106e 2022-02-23)" ></div>
+</section><section id="search" class="content hidden"></section></div></main><div id="rustdoc-vars" data-root-path="../../../" data-current-crate="boa_engine" data-themes="ayu,dark,light" data-resource-suffix="" data-rustdoc-version="1.61.0 (fe5b13d68 2022-05-18)" ></div>
 </body></html>
