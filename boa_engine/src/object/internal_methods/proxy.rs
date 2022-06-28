@@ -32,36 +32,15 @@ pub(crate) static PROXY_EXOTIC_INTERNAL_METHODS_BASIC: InternalObjectMethods =
 
 pub(crate) static PROXY_EXOTIC_INTERNAL_METHODS_WITH_CALL: InternalObjectMethods =
     InternalObjectMethods {
-        __get_prototype_of__: proxy_exotic_get_prototype_of,
-        __set_prototype_of__: proxy_exotic_set_prototype_of,
-        __is_extensible__: proxy_exotic_is_extensible,
-        __prevent_extensions__: proxy_exotic_prevent_extensions,
-        __get_own_property__: proxy_exotic_get_own_property,
-        __define_own_property__: proxy_exotic_define_own_property,
-        __has_property__: proxy_exotic_has_property,
-        __get__: proxy_exotic_get,
-        __set__: proxy_exotic_set,
-        __delete__: proxy_exotic_delete,
-        __own_property_keys__: proxy_exotic_own_property_keys,
         __call__: Some(proxy_exotic_call),
-        __construct__: None,
+        ..PROXY_EXOTIC_INTERNAL_METHODS_BASIC
     };
 
 pub(crate) static PROXY_EXOTIC_INTERNAL_METHODS_ALL: InternalObjectMethods =
     InternalObjectMethods {
-        __get_prototype_of__: proxy_exotic_get_prototype_of,
-        __set_prototype_of__: proxy_exotic_set_prototype_of,
-        __is_extensible__: proxy_exotic_is_extensible,
-        __prevent_extensions__: proxy_exotic_prevent_extensions,
-        __get_own_property__: proxy_exotic_get_own_property,
-        __define_own_property__: proxy_exotic_define_own_property,
-        __has_property__: proxy_exotic_has_property,
-        __get__: proxy_exotic_get,
-        __set__: proxy_exotic_set,
-        __delete__: proxy_exotic_delete,
-        __own_property_keys__: proxy_exotic_own_property_keys,
         __call__: Some(proxy_exotic_call),
         __construct__: Some(proxy_exotic_construct),
+        ..PROXY_EXOTIC_INTERNAL_METHODS_BASIC
     };
 
 /// `10.5.1 [[GetPrototypeOf]] ( )`
@@ -956,7 +935,7 @@ fn proxy_exotic_call(
     )
 }
 
-/// `10.5.13 [[Construct]] ( argumentsList, newTarget )`
+/// `[[Construct]] ( argumentsList, newTarget )`
 ///
 /// More information:
 ///  - [ECMAScript reference][spec]
@@ -965,9 +944,9 @@ fn proxy_exotic_call(
 fn proxy_exotic_construct(
     obj: &JsObject,
     args: &[JsValue],
-    new_target: &JsValue,
+    new_target: &JsObject,
     context: &mut Context,
-) -> JsResult<JsValue> {
+) -> JsResult<JsObject> {
     // 1. Let handler be O.[[ProxyHandler]].
     // 2. If handler is null, throw a TypeError exception.
     // 3. Assert: Type(handler) is Object.
@@ -987,7 +966,7 @@ fn proxy_exotic_construct(
     // 7. If trap is undefined, then
     } else {
         // a. Return ? Construct(target, argumentsList, newTarget).
-        return target.construct(args, new_target, context);
+        return target.construct(args, Some(new_target), context);
     };
 
     // 8. Let argArray be ! CreateArrayFromList(argumentsList).
@@ -996,14 +975,18 @@ fn proxy_exotic_construct(
     // 9. Let newObj be ? Call(trap, handler, « target, argArray, newTarget »).
     let new_obj = trap.call(
         &handler.into(),
-        &[target.clone().into(), arg_array.into(), new_target.clone()],
+        &[
+            target.clone().into(),
+            arg_array.into(),
+            new_target.clone().into(),
+        ],
         context,
     )?;
 
     // 10. If Type(newObj) is not Object, throw a TypeError exception.
-    if !new_obj.is_object() {
-        return context.throw_type_error("Proxy trap constructor returned non-object value");
-    }
+    let new_obj = new_obj.as_object().cloned().ok_or_else(|| {
+        context.construct_type_error("Proxy trap constructor returned non-object value")
+    })?;
 
     // 11. Return newObj.
     Ok(new_obj)

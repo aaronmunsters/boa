@@ -11,7 +11,6 @@ use super::{InternalObjectMethods, ORDINARY_INTERNAL_METHODS};
 pub(crate) static BOUND_FUNCTION_EXOTIC_INTERNAL_METHODS: InternalObjectMethods =
     InternalObjectMethods {
         __call__: Some(bound_function_exotic_call),
-        __construct__: None,
         ..ORDINARY_INTERNAL_METHODS
     };
 
@@ -69,9 +68,9 @@ fn bound_function_exotic_call(
 fn bound_function_exotic_construct(
     obj: &JsObject,
     arguments_list: &[JsValue],
-    new_target: &JsValue,
+    new_target: &JsObject,
     context: &mut Context,
-) -> JsResult<JsValue> {
+) -> JsResult<JsObject> {
     let object = obj.borrow();
     let bound_function = object
         .as_bound_function()
@@ -90,11 +89,12 @@ fn bound_function_exotic_construct(
     args.extend_from_slice(arguments_list);
 
     // 5. If SameValue(F, newTarget) is true, set newTarget to target.
-    let new_target = match new_target {
-        JsValue::Object(new_target) if JsObject::equals(obj, new_target) => target.clone().into(),
-        _ => new_target.clone(),
+    let new_target = if JsObject::equals(obj, new_target) {
+        target
+    } else {
+        new_target
     };
 
     // 6. Return ? Construct(target, args, newTarget).
-    target.construct(&args, &new_target, context)
+    target.construct(&args, Some(new_target), context)
 }

@@ -37,9 +37,15 @@ impl BuiltIn for ArrayBuffer {
     fn init(context: &mut Context) -> Option<JsValue> {
         let _timer = Profiler::global().start_event(Self::NAME, "init");
 
+        let flag_attributes = Attribute::CONFIGURABLE | Attribute::NON_ENUMERABLE;
+
         let get_species = FunctionBuilder::native(context, Self::get_species)
             .name("get [Symbol.species]")
             .constructor(false)
+            .build();
+
+        let get_byte_length = FunctionBuilder::native(context, Self::get_byte_length)
+            .name("get byteLength")
             .build();
 
         ConstructorBuilder::with_standard_constructor(
@@ -49,6 +55,7 @@ impl BuiltIn for ArrayBuffer {
         )
         .name(Self::NAME)
         .length(Self::LENGTH)
+        .accessor("byteLength", Some(get_byte_length), None, flag_attributes)
         .static_accessor(
             WellKnownSymbols::species(),
             Some(get_species),
@@ -56,7 +63,6 @@ impl BuiltIn for ArrayBuffer {
             Attribute::CONFIGURABLE,
         )
         .static_method(Self::is_view, "isView", 1)
-        .method(Self::byte_length, "byteLength", 0)
         .method(Self::slice, "slice", 2)
         .property(
             WellKnownSymbols::to_string_tag(),
@@ -122,7 +128,7 @@ impl ArrayBuffer {
         Ok(args
             .get_or_undefined(0)
             .as_object()
-            .map(|obj| obj.borrow().is_typed_array())
+            .map(|obj| obj.borrow().has_viewed_array_buffer())
             .unwrap_or_default()
             .into())
     }
@@ -133,7 +139,11 @@ impl ArrayBuffer {
     ///  - [ECMAScript reference][spec]
     ///
     /// [spec]: https://tc39.es/ecma262/#sec-get-arraybuffer.prototype.bytelength
-    fn byte_length(this: &JsValue, _args: &[JsValue], context: &mut Context) -> JsResult<JsValue> {
+    fn get_byte_length(
+        this: &JsValue,
+        _args: &[JsValue],
+        context: &mut Context,
+    ) -> JsResult<JsValue> {
         // 1. Let O be the this value.
         // 2. Perform ? RequireInternalSlot(O, [[ArrayBufferData]]).
         let obj = if let Some(obj) = this.as_object() {
@@ -231,15 +241,11 @@ impl ArrayBuffer {
         let ctor = obj.species_constructor(StandardConstructors::array_buffer, context)?;
 
         // 16. Let new be ? Construct(ctor, « 𝔽(newLen) »).
-        let new = ctor.construct(&[new_len.into()], &ctor.clone().into(), context)?;
-
-        // 17. Perform ? RequireInternalSlot(new, [[ArrayBufferData]]).
-        let new_obj = new.as_object().cloned().ok_or_else(|| {
-            context.construct_type_error("ArrayBuffer constructor returned non-object value")
-        })?;
+        let new = ctor.construct(&[new_len.into()], Some(&ctor), context)?;
 
         {
-            let new_obj = new_obj.borrow();
+            let new_obj = new.borrow();
+            // 17. Perform ? RequireInternalSlot(new, [[ArrayBufferData]]).
             let new_array_buffer = new_obj.as_array_buffer().ok_or_else(|| {
                 context.construct_type_error("ArrayBuffer constructor returned invalid object")
             })?;
@@ -254,44 +260,50 @@ impl ArrayBuffer {
             }
         }
         // 20. If SameValue(new, O) is true, throw a TypeError exception.
-        if JsValue::same_value(&new, this) {
+        if this
+            .as_object()
+            .map(|obj| JsObject::equals(obj, &new))
+            .unwrap_or_default()
+        {
             return context.throw_type_error("New ArrayBuffer is the same as this ArrayBuffer");
         }
 
-        let mut new_obj_borrow = new_obj.borrow_mut();
-        let new_array_buffer = new_obj_borrow
-            .as_array_buffer_mut()
-            .expect("Already checked that `new_obj` was an `ArrayBuffer`");
+        {
+            let mut new_obj_borrow = new.borrow_mut();
+            let new_array_buffer = new_obj_borrow
+                .as_array_buffer_mut()
+                .expect("Already checked that `new_obj` was an `ArrayBuffer`");
 
-        // 21. If new.[[ArrayBufferByteLength]] < newLen, throw a TypeError exception.
-        if new_array_buffer.array_buffer_byte_length < new_len {
-            return context.throw_type_error("New ArrayBuffer length too small");
+            // 21. If new.[[ArrayBufferByteLength]] < newLen, throw a TypeError exception.
+            if new_array_buffer.array_buffer_byte_length < new_len {
+                return context.throw_type_error("New ArrayBuffer length too small");
+            }
+
+            // 22. NOTE: Side-effects of the above steps may have detached O.
+            // 23. If IsDetachedBuffer(O) is true, throw a TypeError exception.
+            if Self::is_detached_buffer(o) {
+                return context
+                    .throw_type_error("ArrayBuffer detached while ArrayBuffer.slice was running");
+            }
+
+            // 24. Let fromBuf be O.[[ArrayBufferData]].
+            let from_buf = o
+                .array_buffer_data
+                .as_ref()
+                .expect("ArrayBuffer cannot be detached here");
+
+            // 25. Let toBuf be new.[[ArrayBufferData]].
+            let to_buf = new_array_buffer
+                .array_buffer_data
+                .as_mut()
+                .expect("ArrayBuffer cannot be detached here");
+
+            // 26. Perform CopyDataBlockBytes(toBuf, 0, fromBuf, first, newLen).
+            copy_data_block_bytes(to_buf, 0, from_buf, first as usize, new_len);
         }
-
-        // 22. NOTE: Side-effects of the above steps may have detached O.
-        // 23. If IsDetachedBuffer(O) is true, throw a TypeError exception.
-        if Self::is_detached_buffer(o) {
-            return context
-                .throw_type_error("ArrayBuffer detached while ArrayBuffer.slice was running");
-        }
-
-        // 24. Let fromBuf be O.[[ArrayBufferData]].
-        let from_buf = o
-            .array_buffer_data
-            .as_ref()
-            .expect("ArrayBuffer cannot be detached here");
-
-        // 25. Let toBuf be new.[[ArrayBufferData]].
-        let to_buf = new_array_buffer
-            .array_buffer_data
-            .as_mut()
-            .expect("ArrayBuffer cannot be detached here");
-
-        // 26. Perform CopyDataBlockBytes(toBuf, 0, fromBuf, first, newLen).
-        copy_data_block_bytes(to_buf, 0, from_buf, first as usize, new_len);
 
         // 27. Return new.
-        Ok(new)
+        Ok(new.into())
     }
 
     /// `25.1.2.1 AllocateArrayBuffer ( constructor, byteLength )`
@@ -754,7 +766,7 @@ pub fn create_byte_data_block(size: usize, context: &mut Context) -> JsResult<Ve
 ///
 /// [spec]: https://tc39.es/ecma262/#sec-copydatablockbytes
 fn copy_data_block_bytes(
-    to_block: &mut Vec<u8>,
+    to_block: &mut [u8],
     mut to_index: usize,
     from_block: &[u8],
     mut from_index: usize,
