@@ -41,6 +41,8 @@
 <span id="34">34</span>
 <span id="35">35</span>
 <span id="36">36</span>
+<span id="37">37</span>
+<span id="38">38</span>
 </pre><pre class="rust"><code><span class="doccomment">//! This module implements ECMAScript `Environment Records`.</span>
 <span class="doccomment">//!</span>
 <span class="doccomment">//! Environments contain the bindings of identifiers to their values.</span>
@@ -72,11 +74,13 @@
 
 <span class="kw">pub</span>(<span class="kw">crate</span>) <span class="kw">use</span> {
     <span class="ident">compile::CompileTimeEnvironment</span>,
-    <span class="ident">runtime</span>::{<span class="ident">BindingLocator</span>, <span class="ident">DeclarativeEnvironment</span>, <span class="ident">DeclarativeEnvironmentStack</span>},
+    <span class="ident">runtime</span>::{
+        <span class="ident">BindingLocator</span>, <span class="ident">DeclarativeEnvironment</span>, <span class="ident">DeclarativeEnvironmentStack</span>, <span class="ident">EnvironmentSlots</span>,
+    },
 };
 
 <span class="attribute">#[<span class="ident">cfg</span>(<span class="ident">test</span>)]</span>
 <span class="kw">mod</span> <span class="ident">tests</span>;
 </code></pre></div>
-</section><section id="search" class="content hidden"></section></div></main><div id="rustdoc-vars" data-root-path="../../../" data-current-crate="boa_engine" data-themes="ayu,dark,light" data-resource-suffix="" data-rustdoc-version="1.61.0 (fe5b13d68 2022-05-18)" ></div>
+</section></div></main><div id="rustdoc-vars" data-root-path="../../../" data-current-crate="boa_engine" data-themes="ayu,dark,light" data-resource-suffix="" data-rustdoc-version="1.62.0 (a8314ef7d 2022-06-27)" ></div>
 </body></html>
