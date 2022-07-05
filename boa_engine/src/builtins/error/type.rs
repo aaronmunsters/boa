@@ -96,14 +96,14 @@ impl TypeError {
 
 pub(crate) fn create_throw_type_error(context: &mut Context) -> JsObject {
     fn throw_type_error(_: &JsValue, _: &[JsValue], context: &mut Context) -> JsResult<JsValue> {
-        context.throw_type_error("invalid type")
+        context.throw_type_error("'caller', 'callee', and 'arguments' properties may not be accessed on strict mode functions or the arguments objects for calls to them")
     }
 
     let function = JsObject::from_proto_and_data(
         context.intrinsics().constructors().function().prototype(),
         ObjectData::function(Function::Native {
             function: throw_type_error,
-            constructor: false,
+            constructor: None,
         }),
     );
 

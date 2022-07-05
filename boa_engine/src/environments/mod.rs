@@ -28,8 +28,10 @@ mod compile;
 mod runtime;
 
 pub(crate) use {
-    compile::CompileTimeEnvironmentStack,
-    runtime::{BindingLocator, DeclarativeEnvironment, DeclarativeEnvironmentStack},
+    compile::CompileTimeEnvironment,
+    runtime::{
+        BindingLocator, DeclarativeEnvironment, DeclarativeEnvironmentStack, EnvironmentSlots,
+    },
 };
 
 #[cfg(test)]

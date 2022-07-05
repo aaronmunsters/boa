@@ -25,7 +25,7 @@ use crate::{
     context::intrinsics::StandardConstructors,
     object::{
         internal_methods::get_prototype_from_constructor, ConstructorBuilder, FunctionBuilder,
-        JsObject, ObjectData,
+        JsFunction, JsObject, ObjectData,
     },
     property::{Attribute, PropertyDescriptor, PropertyNameKind},
     symbol::WellKnownSymbols,
@@ -366,12 +366,7 @@ impl Array {
         // 7. If IsConstructor(C) is false, throw a TypeError exception.
         if let Some(c) = c.as_constructor() {
             // 8. Return ? Construct(C, « 𝔽(length) »).
-            Ok(
-                c.construct(&[JsValue::new(length)], &c.clone().into(), context)?
-                    .as_object()
-                    .expect("constructing an object should always return an object")
-                    .clone(),
-            )
+            c.construct(&[JsValue::new(length)], Some(c), context)
         } else {
             context.throw_type_error("Symbol.species must be a constructor")
         }
@@ -420,13 +415,7 @@ impl Array {
             // b. Else,
             //     i. Let A be ? ArrayCreate(0en).
             let a = match this.as_constructor() {
-                Some(constructor) => constructor
-                    .construct(&[], this, context)?
-                    .as_object()
-                    .cloned()
-                    .ok_or_else(|| {
-                        context.construct_type_error("Object constructor didn't return an object")
-                    })?,
+                Some(constructor) => constructor.construct(&[], None, context)?,
                 _ => Self::array_create(0, None, context)?,
             };
 
@@ -499,13 +488,7 @@ impl Array {
             // 10. Else,
             //     a. Let A be ? ArrayCreate(len).
             let a = match this.as_constructor() {
-                Some(constructor) => constructor
-                    .construct(&[len.into()], this, context)?
-                    .as_object()
-                    .cloned()
-                    .ok_or_else(|| {
-                        context.construct_type_error("Object constructor didn't return an object")
-                    })?,
+                Some(constructor) => constructor.construct(&[len.into()], None, context)?,
                 _ => Self::array_create(len, None, context)?,
             };
 
@@ -581,13 +564,7 @@ impl Array {
         // 5. Else,
         //     a. Let A be ? ArrayCreate(len).
         let a = match this.as_constructor() {
-            Some(constructor) => constructor
-                .construct(&[len.into()], this, context)?
-                .as_object()
-                .cloned()
-                .ok_or_else(|| {
-                    context.construct_type_error("object constructor didn't return an object")
-                })?,
+            Some(constructor) => constructor.construct(&[len.into()], None, context)?,
             _ => Self::array_create(len, None, context)?,
         };
 
@@ -2071,7 +2048,9 @@ impl Array {
             // c. Let actualDeleteCount be the result of clamping dc between 0 and len - actualStart.
             let max = len - actual_start;
             match dc {
-                IntegerOrInfinity::Integer(i) => (i as usize).clamp(0, max),
+                IntegerOrInfinity::Integer(i) => {
+                    usize::try_from(i).unwrap_or_default().clamp(0, max)
+                }
                 IntegerOrInfinity::PositiveInfinity => max,
                 IntegerOrInfinity::NegativeInfinity => 0,
             }
@@ -2855,7 +2834,7 @@ impl Array {
         }
     }
 
-    pub(crate) fn values_intrinsic(context: &mut Context) -> JsObject {
+    pub(crate) fn values_intrinsic(context: &mut Context) -> JsFunction {
         FunctionBuilder::native(context, Self::values)
             .name("values")
             .length(0)

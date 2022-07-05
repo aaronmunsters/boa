@@ -2,8 +2,7 @@
 //!
 //! This module will provides everything needed to implement the `CallFrame`
 
-use super::CodeBlock;
-use crate::JsValue;
+use crate::vm::CodeBlock;
 use boa_gc::{Finalize, Gc, Trace};
 
 #[derive(Clone, Debug, Finalize, Trace)]
@@ -11,7 +10,6 @@ pub struct CallFrame {
     pub(crate) prev: Option<Box<Self>>,
     pub(crate) code: Gc<CodeBlock>,
     pub(crate) pc: usize,
-    pub(crate) this: JsValue,
     #[unsafe_ignore_trace]
     pub(crate) catch: Vec<CatchAddresses>,
     #[unsafe_ignore_trace]
@@ -32,6 +30,9 @@ pub struct CallFrame {
     pub(crate) arg_count: usize,
     #[unsafe_ignore_trace]
     pub(crate) generator_resume_kind: GeneratorResumeKind,
+
+    // Indicate that the last try block has thrown an exception.
+    pub(crate) thrown: bool,
 }
 
 impl CallFrame {

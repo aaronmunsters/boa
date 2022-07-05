@@ -3,8 +3,12 @@
 //!
 //! # Crate Features
 //!  - **serde** - Enables serialization and deserialization of the AST (Abstract Syntax Tree).
-//!  - **console** - Enables `boa`s WHATWG `console` object implementation.
+//!  - **console** - Enables `boa`'s [WHATWG `console`][whatwg] object implementation.
 //!  - **profiler** - Enables profiling with measureme (this is mostly internal).
+//!  - **intl** - Enables `boa`'s [ECMA-402 Internationalization API][ecma-402] (`Intl` object)
+//!
+//! [whatwg]: https://console.spec.whatwg.org
+//! [ecma-402]: https://tc39.es/ecma402
 
 #![doc(
     html_logo_url = "https://raw.githubusercontent.com/boa-dev/boa/main/assets/logo.svg",
@@ -26,7 +30,6 @@
     clippy::all,
     clippy::cast_lossless,
     clippy::redundant_closure_for_method_calls,
-    clippy::use_self,
     clippy::unnested_or_patterns,
     clippy::trivially_copy_pass_by_ref,
     clippy::needless_pass_by_value,
@@ -64,6 +67,11 @@
     clippy::missing_errors_doc,
     clippy::as_conversions,
     clippy::let_unit_value,
+    // Ignore because `write!(string, ...)` instead of `string.push_str(&format!(...))` can fail.
+    // We only use it in `ToInternedString` where performance is not an issue.
+    clippy::format_push_string,
+    // TODO deny once false positive are fixed (https://github.com/rust-lang/rust-clippy/issues/9076).
+    clippy::trait_duplication_in_bounds,
     rustdoc::missing_doc_code_examples
 )]
 
@@ -73,6 +81,7 @@ pub mod bytecompiler;
 pub mod class;
 pub mod context;
 pub mod environments;
+pub mod job;
 pub mod object;
 pub mod instrumentation;
 pub mod property;
@@ -100,7 +109,6 @@ pub use crate::{
 };
 
 /// The result of a Javascript expression is represented like this so it can succeed (`Ok`) or fail (`Err`)
-#[must_use]
 pub type JsResult<T> = StdResult<T, JsValue>;
 
 /// Execute the code using an existing `Context`.

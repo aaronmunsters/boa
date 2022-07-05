@@ -19,13 +19,15 @@ use crate::{
         internal_methods::get_prototype_from_constructor, JsObject, NativeObject, Object,
         ObjectData,
     },
-    object::{ConstructorBuilder, FunctionBuilder, Ref, RefMut},
+    object::{ConstructorBuilder, FunctionBuilder, JsFunction, PrivateElement, Ref, RefMut},
     property::{Attribute, PropertyDescriptor, PropertyKey},
     symbol::WellKnownSymbols,
+    syntax::{ast::node::FormalParameterList, Parser},
     value::IntegerOrInfinity,
     Context, JsResult, JsString, JsValue,
 };
-use boa_gc::{self, Finalize, Gc, Trace};
+use boa_gc::{self, custom_trace, Finalize, Gc, Trace};
+use boa_interner::Sym;
 use boa_profiler::Profiler;
 use dyn_clone::DynClone;
 use std::{
@@ -47,6 +49,14 @@ mod tests;
 ///
 /// Native functions need to have this signature in order to
 /// be callable from Javascript.
+///
+/// # Arguments
+///
+/// - The first argument represents the `this` variable of every Javascript function.
+///
+/// - The second argument represents a list of all arguments passed to the function.
+///
+/// - The last argument is the [`Context`] of the engine.
 pub type NativeFunctionSignature = fn(&JsValue, &[JsValue], &mut Context) -> JsResult<JsValue>;
 
 // Allows restricting closures to only `Copy` ones.
@@ -101,7 +111,13 @@ impl ThisMode {
     }
 }
 
-#[derive(Debug, Trace, Finalize, PartialEq, Clone)]
+/// Represents the `[[ConstructorKind]]` internal slot of function objects.
+///
+/// More information:
+///  - [ECMAScript specification][spec]
+///
+/// [spec]: https://tc39.es/ecma262/#sec-ecmascript-function-objects
+#[derive(Clone, Copy, Debug, PartialEq)]
 pub enum ConstructorKind {
     Base,
     Derived,
@@ -117,6 +133,32 @@ impl ConstructorKind {
     pub fn is_derived(&self) -> bool {
         matches!(self, Self::Derived)
     }
+}
+
+/// Record containing the field definition of classes.
+///
+/// More information:
+///  - [ECMAScript specification][spec]
+///
+/// [spec]: https://tc39.es/ecma262/#sec-classfielddefinition-record-specification-type
+#[derive(Clone, Debug, Finalize)]
+pub enum ClassFieldDefinition {
+    Public(PropertyKey, JsFunction),
+    Private(Sym, JsFunction),
+}
+
+unsafe impl Trace for ClassFieldDefinition {
+    custom_trace! {this, {
+        match this {
+            Self::Public(key, func) => {
+                mark(key);
+                mark(func);
+            }
+            Self::Private(_, func) => {
+                mark(func);
+            }
+        }
+    }}
 }
 
 /// Wrapper for `Gc<GcCell<dyn NativeObject>>` that allows passing additional
@@ -166,17 +208,15 @@ impl Captures {
 /// (AST Node).
 ///
 /// <https://tc39.es/ecma262/#sec-ecmascript-function-objects>
-#[derive(Trace, Finalize)]
+#[derive(Finalize)]
 pub enum Function {
     Native {
-        #[unsafe_ignore_trace]
         function: NativeFunctionSignature,
-        constructor: bool,
+        constructor: Option<ConstructorKind>,
     },
     Closure {
-        #[unsafe_ignore_trace]
         function: Box<dyn ClosureFunctionSignature>,
-        constructor: bool,
+        constructor: Option<ConstructorKind>,
         captures: Captures,
     },
     Ordinary {
@@ -184,11 +224,45 @@ pub enum Function {
         environments: DeclarativeEnvironmentStack,
         #[cfg(feature = "instrumentation")]
         evaluation_mode: EvaluationMode,
+
+        /// The `[[ConstructorKind]]` internal slot.
+        constructor_kind: ConstructorKind,
+
+        /// The `[[HomeObject]]` internal slot.
+        home_object: Option<JsObject>,
+
+        /// The `[[Fields]]` internal slot.
+        fields: Vec<ClassFieldDefinition>,
+
+        /// The `[[PrivateMethods]]` internal slot.
+        private_methods: Vec<(Sym, PrivateElement)>,
     },
     Generator {
         code: Gc<crate::vm::CodeBlock>,
         environments: DeclarativeEnvironmentStack,
     },
+}
+
+unsafe impl Trace for Function {
+    custom_trace! {this, {
+        match this {
+            Self::Native { .. } => {}
+            Self::Closure { captures, .. } => mark(captures),
+            Self::Ordinary { code, environments, home_object, fields, private_methods, .. } => {
+                mark(code);
+                mark(environments);
+                mark(home_object);
+                mark(fields);
+                for (_, elem) in private_methods {
+                    mark(elem);
+                }
+            }
+            Self::Generator { code, environments } => {
+                mark(code);
+                mark(environments);
+            }
+        }
+    }}
 }
 
 impl fmt::Debug for Function {
@@ -201,8 +275,84 @@ impl Function {
     /// Returns true if the function object is a constructor.
     pub fn is_constructor(&self) -> bool {
         match self {
-            Self::Native { constructor, .. } | Self::Closure { constructor, .. } => *constructor,
-            Self::Ordinary { code, .. } | Self::Generator { code, .. } => code.constructor,
+            Self::Native { constructor, .. } | Self::Closure { constructor, .. } => {
+                constructor.is_some()
+            }
+            Self::Generator { .. } => false,
+            Self::Ordinary { code, .. } => !(code.this_mode == ThisMode::Lexical),
+        }
+    }
+
+    /// Returns true if the function object is a derived constructor.
+    pub(crate) fn is_derived_constructor(&self) -> bool {
+        if let Self::Ordinary {
+            constructor_kind, ..
+        } = self
+        {
+            constructor_kind.is_derived()
+        } else {
+            false
+        }
+    }
+
+    /// Returns a reference to the function `[[HomeObject]]` slot if present.
+    pub(crate) fn get_home_object(&self) -> Option<&JsObject> {
+        if let Self::Ordinary { home_object, .. } = self {
+            home_object.as_ref()
+        } else {
+            None
+        }
+    }
+
+    ///  Sets the `[[HomeObject]]` slot if present.
+    pub(crate) fn set_home_object(&mut self, object: JsObject) {
+        if let Self::Ordinary { home_object, .. } = self {
+            *home_object = Some(object);
+        }
+    }
+
+    /// Returns the values of the `[[Fields]]` internal slot.
+    pub(crate) fn get_fields(&self) -> &[ClassFieldDefinition] {
+        if let Self::Ordinary { fields, .. } = self {
+            fields
+        } else {
+            &[]
+        }
+    }
+
+    /// Pushes a value to the `[[Fields]]` internal slot if present.
+    pub(crate) fn push_field(&mut self, key: PropertyKey, value: JsFunction) {
+        if let Self::Ordinary { fields, .. } = self {
+            fields.push(ClassFieldDefinition::Public(key, value));
+        }
+    }
+
+    /// Pushes a private value to the `[[Fields]]` internal slot if present.
+    pub(crate) fn push_field_private(&mut self, key: Sym, value: JsFunction) {
+        if let Self::Ordinary { fields, .. } = self {
+            fields.push(ClassFieldDefinition::Private(key, value));
+        }
+    }
+
+    /// Returns the values of the `[[PrivateMethods]]` internal slot.
+    pub(crate) fn get_private_methods(&self) -> &[(Sym, PrivateElement)] {
+        if let Self::Ordinary {
+            private_methods, ..
+        } = self
+        {
+            private_methods
+        } else {
+            &[]
+        }
+    }
+
+    /// Pushes a private method to the `[[PrivateMethods]]` internal slot if present.
+    pub(crate) fn push_private_method(&mut self, name: Sym, method: PrivateElement) {
+        if let Self::Ordinary {
+            private_methods, ..
+        } = self
+        {
+            private_methods.push((name, method));
         }
     }
 }
@@ -246,7 +396,7 @@ pub(crate) fn make_builtin_fn<N>(
             .prototype(),
         ObjectData::function(Function::Native {
             function,
-            constructor: false,
+            constructor: None,
         }),
     );
     let attribute = PropertyDescriptor::builder()
@@ -272,23 +422,152 @@ pub struct BuiltInFunctionObject;
 impl BuiltInFunctionObject {
     pub const LENGTH: usize = 1;
 
+    /// `Function ( p1, p2, … , pn, body )`
+    ///
+    /// The apply() method invokes self with the first argument as the `this` value
+    /// and the rest of the arguments provided as an array (or an array-like object).
+    ///
+    /// More information:
+    ///  - [MDN documentation][mdn]
+    ///  - [ECMAScript reference][spec]
+    ///
+    /// [spec]: https://tc39.es/ecma262/#sec-function-p1-p2-pn-body
+    /// [mdn]: https://developer.mozilla.org/en-US/docs/Web/JavaScript/Reference/Global_Objects/Function/Function
     fn constructor(
         new_target: &JsValue,
-        _: &[JsValue],
+        args: &[JsValue],
         context: &mut Context,
     ) -> JsResult<JsValue> {
+        Self::create_dynamic_function(new_target, args, context).map(Into::into)
+    }
+
+    /// `CreateDynamicFunction ( constructor, newTarget, kind, args )`
+    ///
+    /// More information:
+    ///  - [ECMAScript reference][spec]
+    ///
+    /// [spec]: https://tc39.es/ecma262/#sec-createdynamicfunction
+    fn create_dynamic_function(
+        new_target: &JsValue,
+        args: &[JsValue],
+        context: &mut Context,
+    ) -> JsResult<JsObject> {
         let prototype =
             get_prototype_from_constructor(new_target, StandardConstructors::function, context)?;
+        if let Some((body_arg, args)) = args.split_last() {
+            let parameters =
+                if args.is_empty() {
+                    FormalParameterList::empty()
+                } else {
+                    let mut parameters = Vec::with_capacity(args.len());
+                    for arg in args {
+                        parameters.push(arg.to_string(context)?);
+                    }
+                    let mut parameters = parameters.join(",");
+                    parameters.push(')');
 
-        let this = JsObject::from_proto_and_data(
-            prototype,
-            ObjectData::function(Function::Native {
-                function: |_, _, _| Ok(JsValue::undefined()),
-                constructor: true,
-            }),
-        );
+                    let parameters = match Parser::new(parameters.as_bytes())
+                        .parse_formal_parameters(context.interner_mut(), false, false)
+                    {
+                        Ok(parameters) => parameters,
+                        Err(e) => {
+                            return context.throw_syntax_error(format!(
+                                "failed to parse function parameters: {e}"
+                            ))
+                        }
+                    };
+                    parameters
+                };
 
-        Ok(this.into())
+            let body_arg = body_arg.to_string(context)?;
+
+            let body = match Parser::new(body_arg.as_bytes()).parse_function_body(
+                context.interner_mut(),
+                false,
+                false,
+            ) {
+                Ok(statement_list) => statement_list,
+                Err(e) => {
+                    return context
+                        .throw_syntax_error(format!("failed to parse function body: {e}"))
+                }
+            };
+
+            // Early Error: If BindingIdentifier is present and the source text matched by BindingIdentifier is strict mode code,
+            // it is a Syntax Error if the StringValue of BindingIdentifier is "eval" or "arguments".
+            if body.strict() {
+                for parameter in parameters.parameters.iter() {
+                    for name in parameter.names() {
+                        if name == Sym::ARGUMENTS || name == Sym::EVAL {
+                            return context.throw_syntax_error(
+                                " Unexpected 'eval' or 'arguments' in strict mode",
+                            );
+                        }
+                    }
+                }
+            }
+
+            // Early Error: If the source code matching FormalParameters is strict mode code,
+            // the Early Error rules for UniqueFormalParameters : FormalParameters are applied.
+            if (body.strict()) && parameters.has_duplicates() {
+                return context
+                    .throw_syntax_error("Duplicate parameter name not allowed in this context");
+            }
+
+            // Early Error: It is a Syntax Error if FunctionBodyContainsUseStrict of GeneratorBody is true
+            // and IsSimpleParameterList of FormalParameters is false.
+            if body.strict() && !parameters.is_simple() {
+                return context.throw_syntax_error(
+                    "Illegal 'use strict' directive in function with non-simple parameter list",
+                );
+            }
+
+            // It is a Syntax Error if any element of the BoundNames of FormalParameters
+            // also occurs in the LexicallyDeclaredNames of FunctionBody.
+            // https://tc39.es/ecma262/#sec-function-definitions-static-semantics-early-errors
+            {
+                let lexically_declared_names = body.lexically_declared_names();
+                for param in parameters.parameters.as_ref() {
+                    for param_name in param.names() {
+                        if lexically_declared_names
+                            .iter()
+                            .any(|(name, _)| *name == param_name)
+                        {
+                            return context.throw_syntax_error(format!(
+                                "Redeclaration of formal parameter `{}`",
+                                context.interner().resolve_expect(param_name)
+                            ));
+                        }
+                    }
+                }
+            }
+
+            let code = crate::bytecompiler::ByteCompiler::compile_function_code(
+                crate::bytecompiler::FunctionKind::Expression,
+                Some(Sym::EMPTY_STRING),
+                &parameters,
+                &body,
+                false,
+                false,
+                context,
+            )?;
+
+            let environments = context.realm.environments.pop_to_global();
+            let function_object = crate::vm::create_function_object(code, context);
+            context.realm.environments.extend(environments);
+
+            Ok(function_object)
+        } else {
+            let this = JsObject::from_proto_and_data(
+                prototype,
+                ObjectData::function(Function::Native {
+                    function: |_, _, _| Ok(JsValue::undefined()),
+                    constructor: Some(ConstructorKind::Base),
+                }),
+            );
+
+            Ok(this)
+        }
     }
 
     /// `Function.prototype.apply ( thisArg, argArray )`
@@ -520,6 +799,8 @@ impl BuiltIn for BuiltInFunctionObject {
             .constructor(false)
             .build();
 
+        let throw_type_error = context.intrinsics().objects().throw_type_error();
+
         ConstructorBuilder::with_standard_constructor(
             context,
             Self::constructor,
@@ -527,11 +808,27 @@ impl BuiltIn for BuiltInFunctionObject {
         )
         .name(Self::NAME)
         .length(Self::LENGTH)
-        .method(Self::apply, "apply", 1)
+        .method(Self::apply, "apply", 2)
         .method(Self::bind, "bind", 1)
         .method(Self::call, "call", 1)
         .method(Self::to_string, "toString", 0)
         .property(symbol_has_instance, has_instance, Attribute::default())
+        .property_descriptor(
+            "caller",
+            PropertyDescriptor::builder()
+                .get(throw_type_error.clone())
+                .set(throw_type_error.clone())
+                .enumerable(false)
+                .configurable(true),
+        )
+        .property_descriptor(
+            "arguments",
+            PropertyDescriptor::builder()
+                .get(throw_type_error.clone())
+                .set(throw_type_error)
+                .enumerable(false)
+                .configurable(true),
+        )
         .build()
         .conv::<JsValue>()
         .pipe(Some)

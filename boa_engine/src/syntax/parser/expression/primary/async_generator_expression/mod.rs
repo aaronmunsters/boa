@@ -11,11 +11,14 @@
 mod tests;
 
 use crate::syntax::{
-    ast::{node::AsyncGeneratorExpr, Keyword, Position, Punctuator},
+    ast::{
+        node::{function_contains_super, AsyncGeneratorExpr},
+        Keyword, Position, Punctuator,
+    },
     lexer::{Error as LexError, TokenKind},
     parser::{
+        expression::BindingIdentifier,
         function::{FormalParameters, FunctionBody},
-        statement::BindingIdentifier,
         Cursor, ParseError, TokenParser,
     },
 };
@@ -59,7 +62,11 @@ where
         let _timer = Profiler::global().start_event("AsyncGeneratorExpression", "Parsing");
 
         cursor.peek_expect_no_lineterminator(0, "async generator expression", interner)?;
-        cursor.expect(Keyword::Function, "async generator expression", interner)?;
+        cursor.expect(
+            (Keyword::Function, false),
+            "async generator expression",
+            interner,
+        )?;
         cursor.expect(
             TokenKind::Punctuator(Punctuator::Mul),
             "async generator expression",
@@ -139,25 +146,16 @@ where
 
         // It is a Syntax Error if any element of the BoundNames of FormalParameters
         // also occurs in the LexicallyDeclaredNames of FunctionBody.
-        {
-            let lexically_declared_names = body.lexically_declared_names(interner);
-            for param in params.parameters.as_ref() {
-                for param_name in param.names() {
-                    if lexically_declared_names.contains(&param_name) {
-                        return Err(ParseError::lex(LexError::Syntax(
-                            format!(
-                                "Redeclaration of formal parameter `{}`",
-                                interner.resolve_expect(param_name)
-                            )
-                            .into(),
-                            match cursor.peek(0, interner)? {
-                                Some(token) => token.span().end(),
-                                None => Position::new(1, 1),
-                            },
-                        )));
-                    }
-                }
-            }
+        params.name_in_lexically_declared_names(
+            &body.lexically_declared_names_top_level(),
+            params_start_position,
+        )?;
+
+        if function_contains_super(&body, &params) {
+            return Err(ParseError::lex(LexError::Syntax(
+                "invalid super usage".into(),
+                params_start_position,
+            )));
         }
 
         //implement the below AsyncGeneratorExpr in ast::node

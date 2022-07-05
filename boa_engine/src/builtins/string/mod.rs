@@ -1380,7 +1380,7 @@ impl String {
         let s = o.to_string(context)?;
 
         // 4. Let rx be ? RegExpCreate(regexp, undefined).
-        let rx = RegExp::create(regexp.clone(), JsValue::undefined(), context)?;
+        let rx = RegExp::create(regexp, &JsValue::Undefined, context)?;
 
         // 5. Return ? Invoke(rx, @@match, « S »).
         rx.invoke(WellKnownSymbols::r#match(), &[JsValue::new(s)], context)
@@ -1991,7 +1991,7 @@ impl String {
         let s = o.to_string(context)?;
 
         // 4. Let rx be ? RegExpCreate(regexp, "g").
-        let rx = RegExp::create(regexp.clone(), JsValue::new("g"), context)?;
+        let rx = RegExp::create(regexp, &JsValue::new("g"), context)?;
 
         // 5. Return ? Invoke(rx, @@matchAll, « S »).
         rx.invoke(WellKnownSymbols::match_all(), &[JsValue::new(s)], context)
@@ -2080,7 +2080,7 @@ impl String {
         let string = o.to_string(context)?;
 
         // 4. Let rx be ? RegExpCreate(regexp, undefined).
-        let rx = RegExp::create(regexp.clone(), JsValue::undefined(), context)?;
+        let rx = RegExp::create(regexp, &JsValue::Undefined, context)?;
 
         // 5. Return ? Invoke(rx, @@search, « string »).
         rx.invoke(WellKnownSymbols::search(), &[JsValue::new(string)], context)
@@ -2140,10 +2140,10 @@ pub(crate) fn get_substitution(
     while let Some(first) = chars.next() {
         if first == '$' {
             let second = chars.next();
-            let second_is_digit = second.map_or(false, |ch| ch.is_digit(10));
+            let second_is_digit = second.as_ref().map_or(false, char::is_ascii_digit);
             // we use peek so that it is still in the iterator if not used
             let third = if second_is_digit { chars.peek() } else { None };
-            let third_is_digit = third.map_or(false, |ch| ch.is_digit(10));
+            let third_is_digit = third.map_or(false, char::is_ascii_digit);
 
             match (second, third) {
                 // $$

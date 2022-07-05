@@ -10,6 +10,7 @@ use crate::{
     Context, JsResult, JsValue,
 };
 use boa_gc::{self, Finalize, Gc, Trace};
+use rustc_hash::FxHashMap;
 use std::{
     cell::RefCell,
     collections::HashMap,
@@ -56,6 +57,7 @@ impl JsObject {
             prototype: prototype.into(),
             extensible: true,
             properties: PropertyMap::default(),
+            private_elements: FxHashMap::default(),
         })
     }
 
@@ -430,6 +432,17 @@ impl JsObject {
     #[track_caller]
     pub fn is_typed_array(&self) -> bool {
         self.borrow().is_typed_array()
+    }
+
+    /// Checks if it's a `Promise` object.
+    ///
+    /// # Panics
+    ///
+    /// Panics if the object is currently mutably borrowed.
+    #[inline]
+    #[track_caller]
+    pub fn is_promise(&self) -> bool {
+        self.borrow().is_promise()
     }
 
     /// Checks if it's an ordinary object.

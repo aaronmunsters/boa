@@ -12,11 +12,15 @@ mod call;
 mod member;
 mod template;
 
-use self::{call::CallExpression, member::MemberExpression};
 use crate::syntax::{
-    ast::{Node, Punctuator},
+    ast::{node::SuperCall, Keyword, Node, Punctuator},
     lexer::{InputElement, TokenKind},
-    parser::{AllowAwait, AllowYield, Cursor, ParseResult, TokenParser},
+    parser::{
+        expression::left_hand_side::{
+            arguments::Arguments, call::CallExpression, member::MemberExpression,
+        },
+        AllowAwait, AllowYield, Cursor, ParseResult, TokenParser,
+    },
 };
 use boa_interner::{Interner, Sym};
 use boa_profiler::Profiler;
@@ -31,7 +35,7 @@ use std::io::Read;
 /// [mdn]: https://developer.mozilla.org/en-US/docs/Web/JavaScript/Guide/Expressions_and_Operators#Left-hand-side_expressions
 /// [spec]: https://tc39.es/ecma262/#prod-LeftHandSideExpression
 #[derive(Debug, Clone, Copy)]
-pub(super) struct LeftHandSideExpression {
+pub(in crate::syntax::parser) struct LeftHandSideExpression {
     name: Option<Sym>,
     allow_yield: AllowYield,
     allow_await: AllowAwait,
@@ -39,7 +43,7 @@ pub(super) struct LeftHandSideExpression {
 
 impl LeftHandSideExpression {
     /// Creates a new `LeftHandSideExpression` parser.
-    pub(super) fn new<N, Y, A>(name: N, allow_yield: Y, allow_await: A) -> Self
+    pub(in crate::syntax::parser) fn new<N, Y, A>(name: N, allow_yield: Y, allow_await: A) -> Self
     where
         N: Into<Option<Sym>>,
         Y: Into<AllowYield>,
@@ -63,6 +67,19 @@ where
         let _timer = Profiler::global().start_event("LeftHandSIdeExpression", "Parsing");
 
         cursor.set_goal(InputElement::TemplateTail);
+
+        if let Some(next) = cursor.peek(0, interner)? {
+            if let TokenKind::Keyword((Keyword::Super, _)) = next.kind() {
+                if let Some(next) = cursor.peek(1, interner)? {
+                    if next.kind() == &TokenKind::Punctuator(Punctuator::OpenParen) {
+                        cursor.next(interner).expect("token disappeared");
+                        let args = Arguments::new(self.allow_yield, self.allow_await)
+                            .parse(cursor, interner)?;
+                        return Ok(SuperCall::new(args).into());
+                    }
+                }
+            }
+        }
 
         // TODO: Implement NewExpression: new MemberExpression
         let lhs = MemberExpression::new(self.name, self.allow_yield, self.allow_await)
