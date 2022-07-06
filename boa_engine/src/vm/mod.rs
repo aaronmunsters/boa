@@ -271,9 +271,6 @@ impl Context {
                 Opcode::LessThanOrEq => attempt_binary_instr!("<="),
                 Opcode::In => attempt_binary_instr!("in"),
                 Opcode::InstanceOf => attempt_binary_instr!("instanceof"),
-                Opcode::LogicalAnd => todo!(), // |
-                Opcode::LogicalOr => todo!(),  // |- take into account lazy evaluation compilation
-                Opcode::Coalesce => todo!(),   // |
                 // Read instrumentation
                 Opcode::GetName | Opcode::GetNameOrUndefined => {
                     if let Some(traps) = &mut self.instrumentation_conf.traps {
