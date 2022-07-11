@@ -17,7 +17,14 @@ use std::panic;
 
 impl TestSuite {
     /// Runs the test suite.
-    pub(crate) fn run(&self, harness: &Harness, verbose: u8, parallel: bool) -> SuiteResult {
+    pub(crate) fn run(
+        &self,
+        harness: &Harness,
+        verbose: u8,
+        parallel: bool,
+        #[cfg(feature = "instrumentation")]
+        advice: Option<Vec<u8>>,
+    ) -> SuiteResult {
         if verbose != 0 {
             println!("Suite {}:", self.name);
         }
@@ -25,24 +32,46 @@ impl TestSuite {
         let suites: Vec<_> = if parallel {
             self.suites
                 .par_iter()
-                .map(|suite| suite.run(harness, verbose, parallel))
+                .map(|suite| suite.run(
+                    harness,
+                    verbose,
+                    parallel,
+                    #[cfg(feature = "instrumentation")]
+                    advice.clone(),
+                ))
                 .collect()
         } else {
             self.suites
                 .iter()
-                .map(|suite| suite.run(harness, verbose, parallel))
+                .map(|suite| suite.run(
+                    harness,
+                    verbose,
+                    parallel,
+                    #[cfg(feature = "instrumentation")]
+                    advice.clone(),
+                ))
                 .collect()
         };
 
         let tests: Vec<_> = if parallel {
             self.tests
                 .par_iter()
-                .flat_map(|test| test.run(harness, verbose))
+                .flat_map(|test| test.run(
+                    harness,
+                    verbose,
+                    #[cfg(feature = "instrumentation")]
+                    advice.clone(),
+                ))
                 .collect()
         } else {
             self.tests
                 .iter()
-                .flat_map(|test| test.run(harness, verbose))
+                .flat_map(|test| test.run(
+                    harness,
+                    verbose,
+                    #[cfg(feature = "instrumentation")]
+                    advice.clone(),
+                ))
                 .collect()
         };
 
@@ -113,21 +142,46 @@ impl TestSuite {
 
 impl Test {
     /// Runs the test.
-    pub(crate) fn run(&self, harness: &Harness, verbose: u8) -> Vec<TestResult> {
+    pub(crate) fn run(
+        &self,
+        harness: &Harness,
+        verbose: u8,
+        #[cfg(feature = "instrumentation")]
+        advice: Option<Vec<u8>>,
+    ) -> Vec<TestResult> {
         let mut results = Vec::new();
         if self.flags.contains(TestFlags::STRICT) && !self.flags.contains(TestFlags::RAW) {
-            results.push(self.run_once(harness, true, verbose));
+            results.push(self.run_once(
+                harness,
+                true,
+                verbose,
+                #[cfg(feature = "instrumentation")]
+                advice.clone(),            
+            ));
         }
 
         if self.flags.contains(TestFlags::NO_STRICT) || self.flags.contains(TestFlags::RAW) {
-            results.push(self.run_once(harness, false, verbose));
+            results.push(self.run_once(
+                harness,
+                false,
+                verbose,
+                #[cfg(feature = "instrumentation")]
+                advice.clone(),
+            ));
         }
 
         results
     }
 
     /// Runs the test once, in strict or non-strict mode
-    fn run_once(&self, harness: &Harness, strict: bool, verbose: u8) -> TestResult {
+    fn run_once(
+        &self,
+        harness: &Harness,
+        strict: bool,
+        verbose: u8,
+        #[cfg(feature = "instrumentation")]
+        advice: Option<Vec<u8>>,
+) -> TestResult {
         if verbose > 1 {
             println!(
                 "`{}`{}: starting",
@@ -171,6 +225,11 @@ impl Test {
                 Outcome::Positive => {
                     let mut context = Context::default();
 
+                    #[cfg(feature = "instrumentation")]
+                    if let Some(advice) = advice {
+                        context.install_advice(advice);
+                    }                    
+
                     let callback_obj = CallbackObject::default();
                     // TODO: timeout
                     match self.set_up_env(harness, &mut context, callback_obj.clone()) {
@@ -201,6 +260,12 @@ impl Test {
                     );
 
                     let mut context = Context::default();
+
+                    #[cfg(feature = "instrumentation")]
+                    if let Some(advice) = advice {
+                        context.install_advice(advice);
+                    }                    
+
                     match context.parse(&test_content) {
                         Ok(statement_list) => match context.compile(&statement_list) {
                             Ok(_) => (false, "StatementList compilation should fail".to_owned()),
@@ -218,6 +283,12 @@ impl Test {
                     ref error_type,
                 } => {
                     let mut context = Context::default();
+
+                    #[cfg(feature = "instrumentation")]
+                    if let Some(advice) = advice {
+                        context.install_advice(advice);
+                    }                    
+
                     if let Err(e) = Parser::new(test_content.as_bytes()).parse_all(&mut context) {
                         (false, format!("Uncaught {e}"))
                     } else {

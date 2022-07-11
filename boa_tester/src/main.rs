@@ -83,6 +83,9 @@ use std::{
 };
 use structopt::StructOpt;
 
+#[cfg(feature = "instrumentation")]
+use std::fs::read;
+
 /// Structure to allow defining ignored tests, features and files that should
 /// be ignored even when reading.
 #[derive(Debug)]
@@ -217,6 +220,11 @@ enum Cli {
         /// Execute tests serially
         #[structopt(short, long)]
         disable_parallelism: bool,
+
+        // Optional inclusion of analysis
+        #[cfg_attr(feature = "instrumentation", structopt(short, long, parse(from_os_str)))]
+        #[cfg(feature = "instrumentation")]
+        advice: Option<PathBuf>,
     },
     Compare {
         /// Base results of the suite.
@@ -242,13 +250,21 @@ fn main() {
             suite,
             output,
             disable_parallelism,
+            #[cfg(feature = "instrumentation")]
+            advice,
         } => {
+
+            #[cfg(feature = "instrumentation")]
+            let advice_buffer = advice.map(|path| read(path).expect("Path to advice invalid"));
+
             if let Err(e) = run_test_suite(
                 verbose,
                 !disable_parallelism,
                 test262_path.as_path(),
                 suite.as_path(),
                 output.as_deref(),
+                #[cfg(feature = "instrumentation")]
+                advice_buffer,
             ) {
                 eprintln!("Error: {e}");
                 let mut src = e.source();
@@ -274,6 +290,8 @@ fn run_test_suite(
     test262_path: &Path,
     suite: &Path,
     output: Option<&Path>,
+    #[cfg(feature = "instrumentation")]
+    advice: Option<Vec<u8>>,
 ) -> anyhow::Result<()> {
     if let Some(path) = output {
         if path.exists() {
@@ -299,7 +317,12 @@ fn run_test_suite(
         if verbose != 0 {
             println!("Test loaded, starting...");
         }
-        test.run(&harness, verbose);
+        test.run(
+            &harness,
+            verbose,
+            #[cfg(feature = "instrumentation")]
+            advice,
+        );
 
         println!();
     } else {
@@ -311,7 +334,13 @@ fn run_test_suite(
         if verbose != 0 {
             println!("Test suite loaded, starting tests...");
         }
-        let results = suite.run(&harness, verbose, parallel);
+        let results = suite.run(
+            &harness,
+            verbose,
+            parallel,
+            #[cfg(feature = "instrumentation")]
+            advice,
+        );
 
         println!();
         println!("Results:");
