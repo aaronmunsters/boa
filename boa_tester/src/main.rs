@@ -66,6 +66,8 @@
 mod exec;
 mod read;
 mod results;
+#[cfg(feature = "instrumentation")]
+mod verify;
 
 use self::{
     read::{read_harness, read_suite, read_test, MetaData, Negative, TestFlag},
@@ -85,6 +87,8 @@ use structopt::StructOpt;
 
 #[cfg(feature = "instrumentation")]
 use std::fs::read;
+#[cfg(feature = "instrumentation")]
+use verify::verify_instrumentation;
 
 /// Structure to allow defining ignored tests, features and files that should
 /// be ignored even when reading.
@@ -239,6 +243,20 @@ enum Cli {
         #[structopt(short, long)]
         markdown: bool,
     },
+    #[cfg(feature = "instrumentation")]
+    CheckInstrumentation {
+        /// Base results of the input suite.
+        #[structopt(parse(from_os_str))]
+        input_base: PathBuf,
+
+        /// Base results of the analysis suite.
+        #[structopt(parse(from_os_str))]
+        analysis_base: PathBuf,
+
+        /// Output destination
+        #[structopt(parse(from_os_str))]
+        output: PathBuf,
+    },
 }
 
 /// Program entry point.
@@ -280,6 +298,12 @@ fn main() {
             new,
             markdown,
         } => compare_results(base.as_path(), new.as_path(), markdown),
+        #[cfg(feature = "instrumentation")]
+        Cli::CheckInstrumentation {
+            analysis_base,
+            input_base,
+            output,
+        } => verify_instrumentation(analysis_base, input_base, output),
     }
 }
 
