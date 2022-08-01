@@ -29,10 +29,7 @@ use std::{
 };
 
 #[cfg(feature = "instrumentation")]
-use crate::{
-    object::FunctionBuilder,
-    instrumentation::EvaluationMode
-};
+use crate::instrumentation::EvaluationMode;
 
 mod conversions;
 pub(crate) mod display;
@@ -362,34 +359,14 @@ impl JsValue {
                             PreferredType::Number => "number",
                         };
 
-                        let preferred_type_symbol = context.interner_mut().get_or_intern(preferred_type_string);
-                        let preferred_type_string = context.interner().resolve_expect(preferred_type_symbol);
+                        let preferred_type_symbol =
+                            context.interner_mut().get_or_intern(preferred_type_string);
+                        let preferred_type_string =
+                            context.interner().resolve_expect(preferred_type_symbol);
                         let preferred_type_js_value = JsValue::from(preferred_type_string);
 
-                        let to_primitive_hook = FunctionBuilder::closure(context, |_this: &JsValue, args: &[JsValue], context: &mut Context| {
-                            let value: &JsValue = match args.get(0) {
-                                Some(v) => v,
-                                None => panic!("Instrumentation: Uncaught: to_primitive hook expects 2 arguments"),
-                            };
-
-                            let preferred_type: PreferredType = match args.get(1) {
-                                Some(v) => match v.as_string().expect("Instrumentation: Uncaught: to_primitive second argument should be a string").as_str() {
-                                    "default" => PreferredType::Default,
-                                    "string" => PreferredType::String,
-                                    "number" => PreferredType::Number,
-                                    _ => panic!("Instrumentation: Uncaught: to_primitive hook expects 2 arguments"),    
-                                },
-                                None => panic!("Instrumentation: Uncaught: to_primitive hook expects 2 arguments"),
-                            };
-
-                            Self::to_primitive(value, context, preferred_type)
-                        }).build();
-                        
-                        let result = context.call(trap, &advice, &[
-                            self.into(),
-                            preferred_type_js_value,
-                            to_primitive_hook.into(),
-                        ]);
+                        let result =
+                            context.call(trap, &advice, &[self.into(), preferred_type_js_value]);
 
                         match result {
                             Ok(_) => {

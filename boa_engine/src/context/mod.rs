@@ -29,7 +29,7 @@ use boa_interner::{Interner, Sym};
 use boa_profiler::Profiler;
 
 #[cfg(feature = "instrumentation")]
-use crate::instrumentation::{InstrumentationConf, Traps};
+use crate::instrumentation::{Hooks, InstrumentationConf, Traps};
 
 #[cfg(feature = "intl")]
 use icu_provider::DataError;
@@ -129,12 +129,21 @@ impl Context {
         S: AsRef<[u8]>,
     {
         self.instrumentation_conf.set_mode_meta();
-        let advice = self.eval(advice_buff);
-        match advice {
-            Ok(advice) => {
-                let traps = Traps::from(&advice, self);
-                self.instrumentation_conf.install_traps(traps);
-                self.instrumentation_conf.install_advice(advice);
+        match self.eval(advice_buff) {
+            Ok(advice_callback) => {
+                let meta_hooks = Hooks::default(self);
+                let advice = advice_callback
+                    .as_callable()
+                    .expect("Advice specification should be callable")
+                    .call(&JsValue::Null, &[meta_hooks], self);
+                match advice {
+                    Ok(advice) => {
+                        let traps = Traps::from(&advice, self);
+                        self.instrumentation_conf.install_traps(traps);
+                        self.instrumentation_conf.install_advice(advice);
+                    }
+                    Err(v) => eprintln!("Evaluating advice: Uncaught {}", v.display()),
+                }
             }
             Err(v) => eprintln!("Evaluating advice: Uncaught {}", v.display()),
         }
