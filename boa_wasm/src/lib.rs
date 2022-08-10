@@ -70,3 +70,15 @@ pub fn evaluate(src: &str) -> Result<String, JsValue> {
         .map_err(|e| JsValue::from(format!("Uncaught {}", e.display())))
         .map(|v| v.display().to_string())
 }
+
+#[wasm_bindgen]
+pub fn evaluate_instrument(src: &str, advice_src: &str) -> Result<String, JsValue> {
+    let mut context = Context::default();
+    context
+        .install_advice(advice_src)
+        .map_err(|e| JsValue::from(format!("Uncaught {}", e.display())))?;
+    context
+        .eval(src)
+        .map_err(|e| JsValue::from(format!("Uncaught {}", e.display())))
+        .map(|v| v.display().to_string())
+}
