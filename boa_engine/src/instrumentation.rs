@@ -207,7 +207,7 @@ impl Hooks {
             ">>" => l.shr(&r, context)?,
             ">>>" => l.ushr(&r, context)?,
             "==" => l.equals(&r, context)?.into(),
-            "!=" => l.equals(&r, context)?.into(),
+            "!=" => (!l.equals(&r, context)?).into(),
             "===" => l.strict_equals(&r).into(),
             "!==" => (!l.strict_equals(&r)).into(),
             ">" => l.gt(&r, context)?.into(),
