@@ -250,6 +250,7 @@ impl Context {
                     }
                 }
                 // Binary instrumentation
+                Opcode::Add => attempt_binary_instr!("+"),
                 Opcode::Sub => attempt_binary_instr!("-"),
                 Opcode::Div => attempt_binary_instr!("/"),
                 Opcode::Mul => attempt_binary_instr!("*"),

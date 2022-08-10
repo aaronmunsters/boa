@@ -196,10 +196,10 @@ impl Hooks {
         {
             "+" => l.add(&r, context)?,
             "-" => l.sub(&r, context)?,
-            "/" => l.mul(&r, context)?,
-            "*" => l.div(&r, context)?,
-            "%" => l.pow(&r, context)?,
-            "**" => l.rem(&r, context)?,
+            "*" => l.mul(&r, context)?,
+            "/" => l.div(&r, context)?,
+            "**" => l.pow(&r, context)?,
+            "%" => l.rem(&r, context)?,
             "&" => l.bitand(&r, context)?,
             "|" => l.bitor(&r, context)?,
             "^" => l.bitxor(&r, context)?,
@@ -257,7 +257,9 @@ impl Hooks {
             None => return context.throw_type_error(type_warning),
         };
 
+        let res = JsValue::to_primitive(value, context, preferred_type)?;
+
         context.instrumentation_conf.set_mode_meta();
-        JsValue::to_primitive(value, context, preferred_type)
+        Ok(res)
     }
 }

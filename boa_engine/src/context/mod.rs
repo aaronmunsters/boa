@@ -124,30 +124,22 @@ impl Context {
     }
 
     #[cfg(feature = "instrumentation")]
-    pub fn install_advice<S>(&mut self, advice_buff: S)
+    pub fn install_advice<S>(&mut self, advice_buff: S) -> Result<(), JsValue>
     where
         S: AsRef<[u8]>,
     {
         self.instrumentation_conf.set_mode_meta();
-        match self.eval(advice_buff) {
-            Ok(advice_callback) => {
-                let meta_hooks = Hooks::default(self);
-                let advice = advice_callback
-                    .as_callable()
-                    .expect("Advice specification should be callable")
-                    .call(&JsValue::Null, &[meta_hooks], self);
-                match advice {
-                    Ok(advice) => {
-                        let traps = Traps::from(&advice, self);
-                        self.instrumentation_conf.install_traps(traps);
-                        self.instrumentation_conf.install_advice(advice);
-                    }
-                    Err(v) => eprintln!("Evaluating advice: Uncaught {}", v.display()),
-                }
-            }
-            Err(v) => eprintln!("Evaluating advice: Uncaught {}", v.display()),
-        }
+        let advice_callback = self.eval(advice_buff)?;
+        let advice_callback = advice_callback
+            .as_callable()
+            .ok_or(self.construct_error("Advice not callable"))?;
+        let meta_hooks = Hooks::default(self);
+        let advice = advice_callback.call(&JsValue::Null, &[meta_hooks], self)?;
+        let traps = Traps::from(&advice, self);
+        self.instrumentation_conf.install_traps(traps);
+        self.instrumentation_conf.install_advice(advice);
         self.instrumentation_conf.set_mode_base();
+        Ok(())
     }
 
     /// Gets the string interner.
