@@ -224,11 +224,7 @@ impl Hooks {
                 let key = r.to_property_key(context)?;
                 context.has_property(&r, &key)?.into()
             }
-            "instanceof" => {
-                let target = context.vm.pop();
-                let v = context.vm.pop();
-                v.instance_of(&target, context)?.into()
-            }
+            "instanceof" => l.instance_of(&r, context)?.into(),
             _op => {
                 return context
                     .throw_error(format!("Binary hook operator should be known, got {}", _op))
