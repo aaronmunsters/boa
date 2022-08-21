@@ -85,9 +85,9 @@ fn verify_once(input: &NameProgram, analyses: &Vec<NameProgram>) -> Option<BaseR
                 let mut context = Context::default();
                 context.install_advice(analysis.program.clone());
                 match context.eval(input.program.clone()) {
-                    Ok(instr_res) => match uninstr_res.equals(&instr_res, &mut context) {
-                        Ok(_) => per_analysis_result.push(String::from("Success")),
-                        Err(_) => per_analysis_result.push(String::from("Unmatched")),
+                    Ok(instr_res) => match uninstr_res.strict_equals(&instr_res) {
+                        true => per_analysis_result.push(String::from("Success")),
+                        false => per_analysis_result.push(String::from("Unmatched")),
                     },
                     Err(_) => per_analysis_result.push(String::from("Crash")),
                 };
