@@ -6,7 +6,7 @@ use crate::{
     builtins::Number,
     object::ObjectInitializer,
     value::{Numeric, PreferredType},
-    Context, JsBigInt, JsResult, JsValue,
+    Context, JsBigInt, JsResult, JsValue, symbol::WellKnownSymbols,
 };
 use tap::Conv;
 
@@ -253,9 +253,53 @@ impl Hooks {
             None => return context.throw_type_error(type_warning),
         };
 
-        let res = JsValue::to_primitive(value, context, preferred_type)?;
+                // 1. Assert: input is an ECMAScript language value. (always a value not need to check)
+        // 2. If Type(input) is Object, then
+        let res = if value.is_object() {
+            // a. Let exoticToPrim be ? GetMethod(input, @@toPrimitive).
+            let exotic_to_prim = value.get_method(WellKnownSymbols::to_primitive(), context)?;
+
+            // b. If exoticToPrim is not undefined, then
+            if let Some(exotic_to_prim) = exotic_to_prim {
+                // i. If preferredType is not present, let hint be "default".
+                // ii. Else if preferredType is string, let hint be "string".
+                // iii. Else,
+                //     1. Assert: preferredType is number.
+                //     2. Let hint be "number".
+                let hint = match preferred_type {
+                    PreferredType::Default => "default",
+                    PreferredType::String => "string",
+                    PreferredType::Number => "number",
+                }
+                .into();
+
+                // iv. Let result be ? Call(exoticToPrim, input, « hint »).
+                let result = exotic_to_prim.call(value, &[hint], context)?;
+                // v. If Type(result) is not Object, return result.
+                // vi. Throw a TypeError exception.
+                return if result.is_object() {
+                    context.throw_type_error("Symbol.toPrimitive cannot return an object")
+                } else {
+                    Ok(result)
+                };
+            }
+
+            // c. If preferredType is not present, let preferredType be number.
+            let preferred_type = match preferred_type {
+                PreferredType::Default | PreferredType::Number => PreferredType::Number,
+                PreferredType::String => PreferredType::String,
+            };
+
+            // d. Return ? OrdinaryToPrimitive(input, preferredType).
+            value.as_object()
+                .expect("self was not an object")
+                .ordinary_to_primitive(context, preferred_type)
+        } else {
+            // 3. Return input.
+            Ok(value.clone())
+        };
 
         context.instrumentation_conf.set_mode_meta();
-        Ok(res)
+        res
     }
 }
