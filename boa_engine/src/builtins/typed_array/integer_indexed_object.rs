@@ -13,37 +13,33 @@ use crate::{
     object::{JsObject, ObjectData},
     Context,
 };
-use boa_gc::{unsafe_empty_trace, Finalize, Trace};
+use boa_gc::{Finalize, Trace};
 
 /// Type of the array content.
-#[derive(Debug, Clone, Copy, Finalize, PartialEq)]
+#[derive(Debug, Clone, Copy, PartialEq)]
 pub(crate) enum ContentType {
     Number,
     BigInt,
-}
-
-unsafe impl Trace for ContentType {
-    // safe because `ContentType` is `Copy`
-    unsafe_empty_trace!();
 }
 
 /// <https://tc39.es/ecma262/#integer-indexed-exotic-object>
 #[derive(Debug, Clone, Trace, Finalize)]
 pub struct IntegerIndexed {
     viewed_array_buffer: Option<JsObject>,
+    #[unsafe_ignore_trace]
     typed_array_name: TypedArrayKind,
-    byte_offset: usize,
-    byte_length: usize,
-    array_length: usize,
+    byte_offset: u64,
+    byte_length: u64,
+    array_length: u64,
 }
 
 impl IntegerIndexed {
     pub(crate) fn new(
         viewed_array_buffer: Option<JsObject>,
         typed_array_name: TypedArrayKind,
-        byte_offset: usize,
-        byte_length: usize,
-        array_length: usize,
+        byte_offset: u64,
+        byte_length: u64,
+        array_length: u64,
     ) -> Self {
         Self {
             viewed_array_buffer,
@@ -56,7 +52,7 @@ impl IntegerIndexed {
 
     /// `IntegerIndexedObjectCreate ( prototype )`
     ///
-    /// Create a new `JsObject` from a prototype and a `IntergetIndexedObject`
+    /// Create a new `JsObject` from a prototype and a `IntegerIndexedObject`
     ///
     /// More information:
     ///  - [ECMAScript reference][spec]
@@ -105,12 +101,12 @@ impl IntegerIndexed {
     }
 
     /// Get the integer indexed object's byte offset.
-    pub(crate) fn byte_offset(&self) -> usize {
+    pub(crate) fn byte_offset(&self) -> u64 {
         self.byte_offset
     }
 
     /// Set the integer indexed object's byte offset.
-    pub(crate) fn set_byte_offset(&mut self, byte_offset: usize) {
+    pub(crate) fn set_byte_offset(&mut self, byte_offset: u64) {
         self.byte_offset = byte_offset;
     }
 
@@ -130,22 +126,22 @@ impl IntegerIndexed {
     }
 
     /// Get the integer indexed object's byte length.
-    pub fn byte_length(&self) -> usize {
+    pub fn byte_length(&self) -> u64 {
         self.byte_length
     }
 
     /// Set the integer indexed object's byte length.
-    pub(crate) fn set_byte_length(&mut self, byte_length: usize) {
+    pub(crate) fn set_byte_length(&mut self, byte_length: u64) {
         self.byte_length = byte_length;
     }
 
     /// Get the integer indexed object's array length.
-    pub fn array_length(&self) -> usize {
+    pub fn array_length(&self) -> u64 {
         self.array_length
     }
 
     /// Set the integer indexed object's array length.
-    pub(crate) fn set_array_length(&mut self, array_length: usize) {
+    pub(crate) fn set_array_length(&mut self, array_length: u64) {
         self.array_length = array_length;
     }
 }

@@ -60,7 +60,6 @@
     clippy::missing_errors_doc,
     clippy::as_conversions,
     clippy::let_unit_value,
-    rustdoc::missing_doc_code_examples
 )]
 
 mod exec;
@@ -75,15 +74,16 @@ use self::{
 };
 use anyhow::{bail, Context};
 use bitflags::bitflags;
+use clap::{ArgAction, Parser, ValueHint};
 use colored::Colorize;
 use fxhash::{FxHashMap, FxHashSet};
 use once_cell::sync::Lazy;
+use read::ErrorType;
 use serde::{Deserialize, Serialize};
 use std::{
     fs,
     path::{Path, PathBuf},
 };
-use structopt::StructOpt;
 
 #[cfg(feature = "instrumentation")]
 use std::fs::read;
@@ -200,68 +200,69 @@ static IGNORED: Lazy<Ignored> = Lazy::new(|| {
 });
 
 /// Boa test262 tester
-#[derive(StructOpt, Debug)]
-#[structopt(name = "Boa test262 tester")]
+#[derive(Debug, Parser)]
+#[command(author, version, about, name = "Boa test262 tester")]
 enum Cli {
     /// Run the test suite.
     Run {
         /// Whether to show verbose output.
-        #[structopt(short, long, parse(from_occurrences))]
+        #[arg(short, long, action = ArgAction::Count)]
         verbose: u8,
 
         /// Path to the Test262 suite.
-        #[structopt(long, parse(from_os_str), default_value = "./test262")]
+        #[arg(long, default_value = "./test262", value_hint = ValueHint::DirPath)]
         test262_path: PathBuf,
 
         /// Which specific test or test suite to run. Should be a path relative to the Test262 directory: e.g. "test/language/types/number"
-        #[structopt(short, long, parse(from_os_str), default_value = "test")]
+        #[arg(short, long, default_value = "test", value_hint = ValueHint::AnyPath)]
         suite: PathBuf,
 
         /// Optional output folder for the full results information.
-        #[structopt(short, long, parse(from_os_str))]
+        #[arg(short, long, value_hint = ValueHint::DirPath)]
         output: Option<PathBuf>,
 
         /// Execute tests serially
-        #[structopt(short, long)]
+        #[arg(short, long)]
         disable_parallelism: bool,
 
         // Optional inclusion of analysis
-        #[cfg_attr(feature = "instrumentation", structopt(short, long, parse(from_os_str)))]
         #[cfg(feature = "instrumentation")]
+        #[arg(short, long, value_hint = ValueHint::DirPath)]
         advice: Option<PathBuf>,
     },
+    /// Compare two test suite results.
     Compare {
         /// Base results of the suite.
-        #[structopt(parse(from_os_str))]
+        #[arg(value_hint = ValueHint::FilePath)]
         base: PathBuf,
 
         /// New results to compare.
-        #[structopt(parse(from_os_str))]
+        #[arg(value_hint = ValueHint::FilePath)]
         new: PathBuf,
 
         /// Whether to use markdown output
-        #[structopt(short, long)]
+        #[arg(short, long)]
         markdown: bool,
     },
     #[cfg(feature = "instrumentation")]
     CheckInstrumentation {
         /// Base results of the input suite.
-        #[structopt(parse(from_os_str))]
+        #[arg(value_hint = ValueHint::FilePath)]
         input_base: PathBuf,
 
         /// Base results of the analysis suite.
-        #[structopt(parse(from_os_str))]
+        #[arg(value_hint = ValueHint::FilePath)]
         analysis_base: PathBuf,
 
         /// Output destination
-        #[structopt(parse(from_os_str))]
+        #[arg(value_hint = ValueHint::FilePath)]
         output: PathBuf,
     },
 }
 
 /// Program entry point.
 fn main() {
-    match Cli::from_args() {
+    match Cli::parse() {
         Cli::Run {
             verbose,
             test262_path,
@@ -271,7 +272,6 @@ fn main() {
             #[cfg(feature = "instrumentation")]
             advice,
         } => {
-
             #[cfg(feature = "instrumentation")]
             let advice_buffer = advice.map(|path| read(path).expect("Path to advice invalid"));
 
@@ -314,8 +314,7 @@ fn run_test_suite(
     test262_path: &Path,
     suite: &Path,
     output: Option<&Path>,
-    #[cfg(feature = "instrumentation")]
-    advice: Option<Vec<u8>>,
+    #[cfg(feature = "instrumentation")] advice: Option<Vec<u8>>,
 ) -> anyhow::Result<()> {
     if let Some(path) = output {
         if path.exists() {
@@ -508,7 +507,7 @@ impl Test {
 #[derive(Debug, Clone)]
 enum Outcome {
     Positive,
-    Negative { phase: Phase, error_type: Box<str> },
+    Negative { phase: Phase, error_type: ErrorType },
 }
 
 impl Default for Outcome {

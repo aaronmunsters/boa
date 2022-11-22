@@ -55,8 +55,7 @@
     clippy::must_use_candidate,
     clippy::missing_errors_doc,
     clippy::as_conversions,
-    clippy::let_unit_value,
-    rustdoc::missing_doc_code_examples
+    clippy::let_unit_value
 )]
 
 use boa_engine::Context;
@@ -67,7 +66,7 @@ pub fn evaluate(src: &str) -> Result<String, JsValue> {
     // Setup executor
     Context::default()
         .eval(src)
-        .map_err(|e| JsValue::from(format!("Uncaught {}", e.display())))
+        .map_err(|e| JsValue::from(format!("Uncaught {e}")))
         .map(|v| v.display().to_string())
 }
 
@@ -76,9 +75,9 @@ pub fn evaluate_instrument(src: &str, advice_src: &str) -> Result<String, JsValu
     let mut context = Context::default();
     context
         .install_advice(advice_src)
-        .map_err(|e| JsValue::from(format!("Uncaught {}", e.display())))?;
+        .map_err(|e| JsValue::from(format!("Uncaught {}", e.to_string())))?;
     context
         .eval(src)
-        .map_err(|e| JsValue::from(format!("Uncaught {}", e.display())))
+        .map_err(|e| JsValue::from(format!("Uncaught {}", e.to_string())))
         .map(|v| v.display().to_string())
 }

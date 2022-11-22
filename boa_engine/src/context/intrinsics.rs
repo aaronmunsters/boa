@@ -1,5 +1,7 @@
 use crate::{
-    builtins::{error::r#type::create_throw_type_error, iterable::IteratorPrototypes},
+    builtins::{
+        array::Array, error::r#type::create_throw_type_error, iterable::IteratorPrototypes,
+    },
     object::{JsObject, ObjectData},
     property::PropertyDescriptorBuilder,
     Context,
@@ -72,10 +74,13 @@ impl StandardConstructor {
 /// Cached core standard constructors.
 #[derive(Debug, Clone)]
 pub struct StandardConstructors {
+    async_generator_function: StandardConstructor,
+    async_generator: StandardConstructor,
     object: StandardConstructor,
     proxy: StandardConstructor,
     date: StandardConstructor,
     function: StandardConstructor,
+    async_function: StandardConstructor,
     generator: StandardConstructor,
     generator_function: StandardConstructor,
     array: StandardConstructor,
@@ -116,10 +121,13 @@ pub struct StandardConstructors {
 impl Default for StandardConstructors {
     fn default() -> Self {
         let result = Self {
+            async_generator_function: StandardConstructor::default(),
+            async_generator: StandardConstructor::default(),
             object: StandardConstructor::default(),
             proxy: StandardConstructor::default(),
             date: StandardConstructor::default(),
             function: StandardConstructor::default(),
+            async_function: StandardConstructor::default(),
             generator: StandardConstructor::default(),
             generator_function: StandardConstructor::default(),
             array: StandardConstructor::with_prototype(JsObject::from_proto_and_data(
@@ -186,6 +194,16 @@ impl Default for StandardConstructors {
 
 impl StandardConstructors {
     #[inline]
+    pub fn async_generator_function(&self) -> &StandardConstructor {
+        &self.async_generator_function
+    }
+
+    #[inline]
+    pub fn async_generator(&self) -> &StandardConstructor {
+        &self.async_generator
+    }
+
+    #[inline]
     pub fn object(&self) -> &StandardConstructor {
         &self.object
     }
@@ -203,6 +221,11 @@ impl StandardConstructors {
     #[inline]
     pub fn function(&self) -> &StandardConstructor {
         &self.function
+    }
+
+    #[inline]
+    pub fn async_function(&self) -> &StandardConstructor {
+        &self.async_function
     }
 
     #[inline]
@@ -386,6 +409,10 @@ impl StandardConstructors {
 pub struct IntrinsicObjects {
     /// %ThrowTypeError% intrinsic object
     throw_type_error: JsObject,
+
+    /// %Array.prototype.values%
+    array_prototype_values: JsObject,
+
     /// Cached iterator prototypes.
     iterator_prototypes: IteratorPrototypes,
 }
@@ -395,6 +422,7 @@ impl IntrinsicObjects {
     pub fn init(context: &mut Context) -> Self {
         Self {
             throw_type_error: create_throw_type_error(context),
+            array_prototype_values: Array::create_array_prototype_values(context).into(),
             iterator_prototypes: IteratorPrototypes::init(context),
         }
     }
@@ -403,6 +431,12 @@ impl IntrinsicObjects {
     #[inline]
     pub fn throw_type_error(&self) -> JsObject {
         self.throw_type_error.clone()
+    }
+
+    /// Get the `%Array.prototype.values%` intrinsic object.
+    #[inline]
+    pub fn array_prototype_values(&self) -> JsObject {
+        self.array_prototype_values.clone()
     }
 
     /// Get the cached iterator prototypes.

@@ -1,6 +1,7 @@
 use super::ordered_map::MapLock;
 use crate::{
     builtins::{function::make_builtin_fn, iterable::create_iter_result_object, Array, JsValue},
+    error::JsNativeError,
     object::{JsObject, ObjectData},
     property::{PropertyDescriptor, PropertyNameKind},
     symbol::WellKnownSymbols,
@@ -19,6 +20,7 @@ use boa_profiler::Profiler;
 pub struct MapIterator {
     iterated_map: Option<JsObject>,
     map_next_index: usize,
+    #[unsafe_ignore_trace]
     map_iteration_kind: PropertyNameKind,
     lock: MapLock,
 }
@@ -59,7 +61,9 @@ impl MapIterator {
                 return Ok(map_iterator.into());
             }
         }
-        context.throw_type_error("`this` is not a Map")
+        Err(JsNativeError::typ()
+            .with_message("`this` is not a Map")
+            .into())
     }
 
     /// %MapIteratorPrototype%.next( )
@@ -75,7 +79,7 @@ impl MapIterator {
         let map_iterator = map_iterator
             .as_mut()
             .and_then(|obj| obj.as_map_iterator_mut())
-            .ok_or_else(|| context.construct_type_error("`this` is not a MapIterator"))?;
+            .ok_or_else(|| JsNativeError::typ().with_message("`this` is not a MapIterator"))?;
 
         let item_kind = map_iterator.map_iteration_kind;
 

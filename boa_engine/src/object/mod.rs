@@ -1,6 +1,9 @@
-//! This module implements the Rust representation of a JavaScript object.
+//! This module implements the Rust representation of a JavaScript object,
+//! see [`object::builtins`][builtins] for implementors.
+//!
+//! This module also provides helper objects for working with JavaScript objects.
 
-pub use jsobject::{JsObject, RecursionLimiter, Ref, RefMut};
+pub use jsobject::{RecursionLimiter, Ref, RefMut};
 pub use operations::IntegrityLevel;
 pub use property_map::*;
 
@@ -26,12 +29,15 @@ use crate::{
     builtins::{
         array::array_iterator::ArrayIterator,
         array_buffer::ArrayBuffer,
+        async_generator::AsyncGenerator,
+        error::ErrorKind,
         function::arguments::Arguments,
         function::{
             arguments::ParameterMap, BoundFunction, Captures, ConstructorKind, Function,
             NativeFunctionSignature,
         },
         generator::Generator,
+        iterable::AsyncFromSyncIterator,
         map::map_iterator::MapIterator,
         map::ordered_map::OrderedMap,
         object::for_in_iterator::ForInIterator,
@@ -44,11 +50,13 @@ use crate::{
         DataView, Date, Promise, RegExp,
     },
     context::intrinsics::StandardConstructor,
+    error::JsNativeError,
+    js_string,
     property::{Attribute, PropertyDescriptor, PropertyKey},
     Context, JsBigInt, JsResult, JsString, JsSymbol, JsValue,
 };
 
-use boa_gc::{Finalize, Trace};
+use boa_gc::{custom_trace, Finalize, Trace};
 use boa_interner::Sym;
 use rustc_hash::FxHashMap;
 use std::{
@@ -61,18 +69,16 @@ use std::{
 mod tests;
 
 pub(crate) mod internal_methods;
-mod jsarray;
-mod jsfunction;
+
+pub mod builtins;
 mod jsobject;
-mod jsproxy;
-mod jstypedarray;
 mod operations;
 mod property_map;
 
-pub use jsarray::*;
-pub use jsfunction::*;
-pub use jsproxy::*;
-pub use jstypedarray::*;
+pub(crate) use builtins::*;
+
+pub use builtins::jsproxy::JsProxyBuilder;
+pub use jsobject::*;
 
 pub(crate) trait JsObjectType:
     Into<JsValue> + Into<JsObject> + Deref<Target = JsObject>
@@ -152,8 +158,11 @@ pub struct ObjectData {
 }
 
 /// Defines the different types of objects.
-#[derive(Debug, Trace, Finalize)]
+#[derive(Debug, Finalize)]
 pub enum ObjectKind {
+    AsyncFromSyncIterator(AsyncFromSyncIterator),
+    AsyncGenerator(AsyncGenerator),
+    AsyncGeneratorFunction(Function),
     Array,
     ArrayIterator(ArrayIterator),
     ArrayBuffer(ArrayBuffer),
@@ -175,7 +184,7 @@ pub enum ObjectKind {
     StringIterator(StringIterator),
     Number(f64),
     Symbol(JsSymbol),
-    Error,
+    Error(ErrorKind),
     Ordinary,
     Proxy(Proxy),
     Date(Date),
@@ -183,12 +192,80 @@ pub enum ObjectKind {
     Arguments(Arguments),
     NativeObject(Box<dyn NativeObject>),
     IntegerIndexed(IntegerIndexed),
+    Promise(Promise),
     #[cfg(feature = "intl")]
     DateTimeFormat(Box<DateTimeFormat>),
-    Promise(Promise),
+}
+
+unsafe impl Trace for ObjectKind {
+    custom_trace! {this, {
+        match this {
+            Self::AsyncFromSyncIterator(a) => mark(a),
+            Self::ArrayIterator(i) => mark(i),
+            Self::ArrayBuffer(b) => mark(b),
+            Self::Map(m) => mark(m),
+            Self::MapIterator(i) => mark(i),
+            Self::RegExpStringIterator(i) => mark(i),
+            Self::DataView(v) => mark(v),
+            Self::ForInIterator(i) => mark(i),
+            Self::Function(f) | Self::GeneratorFunction(f) | Self::AsyncGeneratorFunction(f) => mark(f),
+            Self::BoundFunction(f) => mark(f),
+            Self::Generator(g) => mark(g),
+            Self::Set(s) => mark(s),
+            Self::SetIterator(i) => mark(i),
+            Self::StringIterator(i) => mark(i),
+            Self::Proxy(p) => mark(p),
+            Self::Arguments(a) => mark(a),
+            Self::NativeObject(o) => mark(o),
+            Self::IntegerIndexed(i) => mark(i),
+            #[cfg(feature = "intl")]
+            Self::DateTimeFormat(f) => mark(f),
+            Self::Promise(p) => mark(p),
+            Self::AsyncGenerator(g) => mark(g),
+            Self::RegExp(_)
+            | Self::BigInt(_)
+            | Self::Boolean(_)
+            | Self::String(_)
+            | Self::Date(_)
+            | Self::Array
+            | Self::Error(_)
+            | Self::Ordinary
+            | Self::Global
+            | Self::Number(_)
+            | Self::Symbol(_) => {}
+        }
+    }}
 }
 
 impl ObjectData {
+    /// Create the `AsyncFromSyncIterator` object data
+    pub fn async_from_sync_iterator(async_from_sync_iterator: AsyncFromSyncIterator) -> Self {
+        Self {
+            kind: ObjectKind::AsyncFromSyncIterator(async_from_sync_iterator),
+            internal_methods: &ORDINARY_INTERNAL_METHODS,
+        }
+    }
+
+    /// Create the `AsyncGenerator` object data
+    pub fn async_generator(async_generator: AsyncGenerator) -> Self {
+        Self {
+            kind: ObjectKind::AsyncGenerator(async_generator),
+            internal_methods: &ORDINARY_INTERNAL_METHODS,
+        }
+    }
+
+    /// Create the `AsyncGeneratorFunction` object data
+    pub fn async_generator_function(function: Function) -> Self {
+        Self {
+            internal_methods: if function.is_constructor() {
+                &CONSTRUCTOR_INTERNAL_METHODS
+            } else {
+                &FUNCTION_INTERNAL_METHODS
+            },
+            kind: ObjectKind::GeneratorFunction(function),
+        }
+    }
+
     /// Create the `Array` object data and reference its exclusive internal methods
     pub fn array() -> Self {
         Self {
@@ -378,9 +455,9 @@ impl ObjectData {
     }
 
     /// Create the `Error` object data
-    pub fn error() -> Self {
+    pub(crate) fn error(error: ErrorKind) -> Self {
         Self {
-            kind: ObjectKind::Error,
+            kind: ObjectKind::Error(error),
             internal_methods: &ORDINARY_INTERNAL_METHODS,
         }
     }
@@ -464,6 +541,9 @@ impl ObjectData {
 impl Display for ObjectKind {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.write_str(match self {
+            Self::AsyncFromSyncIterator(_) => "AsyncFromSyncIterator",
+            Self::AsyncGenerator(_) => "AsyncGenerator",
+            Self::AsyncGeneratorFunction(_) => "AsyncGeneratorFunction",
             Self::Array => "Array",
             Self::ArrayIterator(_) => "ArrayIterator",
             Self::ArrayBuffer(_) => "ArrayBuffer",
@@ -481,7 +561,7 @@ impl Display for ObjectKind {
             Self::String(_) => "String",
             Self::StringIterator(_) => "StringIterator",
             Self::Symbol(_) => "Symbol",
-            Self::Error => "Error",
+            Self::Error(_) => "Error",
             Self::Ordinary => "Ordinary",
             Self::Proxy(_) => "Proxy",
             Self::Boolean(_) => "Boolean",
@@ -527,6 +607,66 @@ impl Object {
     #[inline]
     pub fn kind(&self) -> &ObjectKind {
         &self.data.kind
+    }
+
+    /// Checks if it's an `AsyncFromSyncIterator` object.
+    #[inline]
+    pub fn is_async_from_sync_iterator(&self) -> bool {
+        matches!(
+            self.data,
+            ObjectData {
+                kind: ObjectKind::AsyncFromSyncIterator(_),
+                ..
+            }
+        )
+    }
+
+    /// Returns a reference to the `AsyncFromSyncIterator` data on the object.
+    #[inline]
+    pub fn as_async_from_sync_iterator(&self) -> Option<&AsyncFromSyncIterator> {
+        match self.data {
+            ObjectData {
+                kind: ObjectKind::AsyncFromSyncIterator(ref async_from_sync_iterator),
+                ..
+            } => Some(async_from_sync_iterator),
+            _ => None,
+        }
+    }
+
+    /// Checks if it's an `AsyncGenerator` object.
+    #[inline]
+    pub fn is_async_generator(&self) -> bool {
+        matches!(
+            self.data,
+            ObjectData {
+                kind: ObjectKind::AsyncGenerator(_),
+                ..
+            }
+        )
+    }
+
+    /// Returns a reference to the async generator data on the object.
+    #[inline]
+    pub fn as_async_generator(&self) -> Option<&AsyncGenerator> {
+        match self.data {
+            ObjectData {
+                kind: ObjectKind::AsyncGenerator(ref async_generator),
+                ..
+            } => Some(async_generator),
+            _ => None,
+        }
+    }
+
+    /// Returns a mutable reference to the async generator data on the object.
+    #[inline]
+    pub fn as_async_generator_mut(&mut self) -> Option<&mut AsyncGenerator> {
+        match self.data {
+            ObjectData {
+                kind: ObjectKind::AsyncGenerator(ref mut async_generator),
+                ..
+            } => Some(async_generator),
+            _ => None,
+        }
     }
 
     /// Checks if it an `Array` object.
@@ -748,6 +888,18 @@ impl Object {
         )
     }
 
+    /// Checks if it is an `SetIterator` object.
+    #[inline]
+    pub fn is_set_iterator(&self) -> bool {
+        matches!(
+            self.data,
+            ObjectData {
+                kind: ObjectKind::SetIterator(_),
+                ..
+            }
+        )
+    }
+
     #[inline]
     pub fn as_set_ref(&self) -> Option<&OrderedSet<JsValue>> {
         match self.data {
@@ -917,10 +1069,21 @@ impl Object {
         matches!(
             self.data,
             ObjectData {
-                kind: ObjectKind::Error,
+                kind: ObjectKind::Error(_),
                 ..
             }
         )
+    }
+
+    #[inline]
+    pub fn as_error(&self) -> Option<ErrorKind> {
+        match self.data {
+            ObjectData {
+                kind: ObjectKind::Error(e),
+                ..
+            } => Some(e),
+            _ => None,
+        }
     }
 
     /// Checks if it a Boolean object.
@@ -1313,6 +1476,11 @@ impl Object {
         &self.properties
     }
 
+    #[inline]
+    pub(crate) fn properties_mut(&mut self) -> &mut PropertyMap {
+        &mut self.properties
+    }
+
     /// Inserts a field in the object `properties` without checking if it's writable.
     ///
     /// If a field was already in the object with the same name, then a `Some` is returned
@@ -1475,7 +1643,7 @@ impl<'context> FunctionBuilder<'context> {
                 function,
                 constructor: None,
             },
-            name: JsString::default(),
+            name: js_string!(),
             length: 0,
         }
     }
@@ -1493,7 +1661,7 @@ impl<'context> FunctionBuilder<'context> {
                 constructor: None,
                 captures: Captures::new(()),
             },
-            name: JsString::default(),
+            name: js_string!(),
             length: 0,
         }
     }
@@ -1520,14 +1688,15 @@ impl<'context> FunctionBuilder<'context> {
                 function: Box::new(move |this, args, captures: Captures, context| {
                     let mut captures = captures.as_mut_any();
                     let captures = captures.downcast_mut::<C>().ok_or_else(|| {
-                        context.construct_type_error("cannot downcast `Captures` to given type")
+                        JsNativeError::typ()
+                            .with_message("cannot downcast `Captures` to given type")
                     })?;
                     function(this, args, captures, context)
                 }),
                 constructor: None,
                 captures: Captures::new(captures),
             },
-            name: JsString::default(),
+            name: js_string!(),
             length: 0,
         }
     }
@@ -1539,9 +1708,9 @@ impl<'context> FunctionBuilder<'context> {
     #[must_use]
     pub fn name<N>(mut self, name: N) -> Self
     where
-        N: AsRef<str>,
+        N: Into<JsString>,
     {
-        self.name = name.as_ref().into();
+        self.name = name.into();
         self
     }
 
@@ -1572,9 +1741,12 @@ impl<'context> FunctionBuilder<'context> {
                 ref mut constructor,
                 ..
             } => {
-                *constructor = yes.then(|| ConstructorKind::Base);
+                *constructor = yes.then_some(ConstructorKind::Base);
             }
-            Function::Ordinary { .. } | Function::Generator { .. } => {
+            Function::Ordinary { .. }
+            | Function::Generator { .. }
+            | Function::AsyncGenerator { .. }
+            | Function::Async { .. } => {
                 unreachable!("function must be native or closure");
             }
         }
@@ -1631,16 +1803,8 @@ impl<'context> FunctionBuilder<'context> {
 /// # use boa_engine::{Context, JsValue, object::ObjectInitializer, property::Attribute};
 /// let mut context = Context::default();
 /// let object = ObjectInitializer::new(&mut context)
-///     .property(
-///         "hello",
-///         "world",
-///         Attribute::all()
-///     )
-///     .property(
-///         1,
-///         1,
-///         Attribute::all()
-///     )
+///     .property("hello", "world", Attribute::all())
+///     .property(1, 1, Attribute::all())
 ///     .function(|_, _, _| Ok(JsValue::undefined()), "func", 0)
 ///     .build();
 /// ```
@@ -1759,7 +1923,7 @@ impl<'context> ConstructorBuilder<'context> {
             object: JsObject::empty(),
             prototype: JsObject::empty(),
             length: 0,
-            name: JsString::default(),
+            name: js_string!(),
             callable: true,
             constructor: Some(ConstructorKind::Base),
             inherit: None,
@@ -1781,7 +1945,7 @@ impl<'context> ConstructorBuilder<'context> {
             has_prototype_property: true,
             prototype: standard_constructor.prototype,
             length: 0,
-            name: JsString::default(),
+            name: js_string!(),
             callable: true,
             constructor: Some(ConstructorKind::Base),
             inherit: None,
@@ -1980,7 +2144,7 @@ impl<'context> ConstructorBuilder<'context> {
     /// Default is `true`
     #[inline]
     pub fn constructor(&mut self, constructor: bool) -> &mut Self {
-        self.constructor = constructor.then(|| ConstructorKind::Base);
+        self.constructor = constructor.then_some(ConstructorKind::Base);
         self
     }
 

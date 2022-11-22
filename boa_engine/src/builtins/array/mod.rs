@@ -23,6 +23,8 @@ use crate::{
     builtins::BuiltIn,
     builtins::Number,
     context::intrinsics::StandardConstructors,
+    error::JsNativeError,
+    js_string,
     object::{
         internal_methods::get_prototype_from_constructor, ConstructorBuilder, FunctionBuilder,
         JsFunction, JsObject, ObjectData,
@@ -30,7 +32,7 @@ use crate::{
     property::{Attribute, PropertyDescriptor, PropertyNameKind},
     symbol::WellKnownSymbols,
     value::{IntegerOrInfinity, JsValue},
-    Context, JsResult, JsString,
+    Context, JsResult,
 };
 use std::cmp::{max, min, Ordering};
 
@@ -52,7 +54,7 @@ impl BuiltIn for Array {
             .constructor(false)
             .build();
 
-        let values_function = Self::values_intrinsic(context);
+        let values_function = context.intrinsics().objects().array_prototype_values();
         let unscopables_object = Self::unscopables_intrinsic(context);
 
         ConstructorBuilder::with_standard_constructor(
@@ -176,7 +178,9 @@ impl Array {
                     .expect("this ToUint32 call must not fail");
                 // ii. If SameValueZero(intLen, len) is false, throw a RangeError exception.
                 if !JsValue::same_value_zero(&int_len.into(), len) {
-                    return context.throw_range_error("invalid array length");
+                    return Err(JsNativeError::range()
+                        .with_message("invalid array length")
+                        .into());
                 }
                 int_len
             };
@@ -192,7 +196,7 @@ impl Array {
             debug_assert!(number_of_args >= 2);
 
             // b. Let array be ? ArrayCreate(numberOfArgs, proto).
-            let array = Self::array_create(number_of_args, Some(prototype), context)?;
+            let array = Self::array_create(number_of_args as u64, Some(prototype), context)?;
             // c. Let k be 0.
             // d. Repeat, while k < numberOfArgs,
             for (i, item) in args.iter().cloned().enumerate() {
@@ -217,13 +221,15 @@ impl Array {
     ///
     /// [spec]: https://tc39.es/ecma262/#sec-arraycreate
     pub(crate) fn array_create(
-        length: usize,
+        length: u64,
         prototype: Option<JsObject>,
         context: &mut Context,
     ) -> JsResult<JsObject> {
         // 1. If length > 2^32 - 1, throw a RangeError exception.
-        if length > 2usize.pow(32) - 1 {
-            return context.throw_range_error("array exceeded max size");
+        if length > 2u64.pow(32) - 1 {
+            return Err(JsNativeError::range()
+                .with_message("array exceeded max size")
+                .into());
         }
         // 7. Return A.
         // 2. If proto is not present, set proto to %Array.prototype%.
@@ -266,15 +272,23 @@ impl Array {
         // 2. Let array be ! ArrayCreate(0).
         let array = Self::array_create(0, None, context)
             .expect("creating an empty array with the default prototype must not fail");
+
         // 3. Let n be 0.
         // 4. For each element e of elements, do
-        for (i, elem) in elements.into_iter().enumerate() {
-            // a. Perform ! CreateDataPropertyOrThrow(array, ! ToString(𝔽(n)), e).
-            array
-                .create_data_property_or_throw(i, elem, context)
-                .expect("new array must be extensible");
-            // b. Set n to n + 1.
-        }
+        //     a. Perform ! CreateDataPropertyOrThrow(array, ! ToString(𝔽(n)), e).
+        //     b. Set n to n + 1.
+        //
+        // NOTE: This deviates from the spec, but it should have the same behaviour.
+        let elements: Vec<_> = elements.into_iter().collect();
+        let length = elements.len();
+        array
+            .borrow_mut()
+            .properties_mut()
+            .override_indexed_properties(elements);
+        array
+            .set("length", length, true, context)
+            .expect("Should not fail");
+
         // 5. Return array.
         array
     }
@@ -286,9 +300,7 @@ impl Array {
     /// by `Array.prototype.concat`.
     fn is_concat_spreadable(o: &JsValue, context: &mut Context) -> JsResult<bool> {
         // 1. If Type(O) is not Object, return false.
-        let o = if let Some(o) = o.as_object() {
-            o
-        } else {
+        let Some(o) = o.as_object() else {
             return Ok(false);
         };
 
@@ -301,7 +313,7 @@ impl Array {
         }
 
         // 4. Return ? IsArray(O).
-        o.is_array_abstract(context)
+        o.is_array_abstract()
     }
 
     /// `get Array [ @@species ]`
@@ -326,23 +338,28 @@ impl Array {
     /// see: <https://tc39.es/ecma262/#sec-arrayspeciescreate>
     pub(crate) fn array_species_create(
         original_array: &JsObject,
-        length: usize,
+        length: u64,
         context: &mut Context,
     ) -> JsResult<JsObject> {
         // 1. Let isArray be ? IsArray(originalArray).
         // 2. If isArray is false, return ? ArrayCreate(length).
-        if !original_array.is_array_abstract(context)? {
+        if !original_array.is_array_abstract()? {
             return Self::array_create(length, None, context);
         }
         // 3. Let C be ? Get(originalArray, "constructor").
         let c = original_array.get("constructor", context)?;
 
         // 4. If IsConstructor(C) is true, then
-        //     a. Let thisRealm be the current Realm Record.
-        //     b. Let realmC be ? GetFunctionRealm(C).
-        //     c. If thisRealm and realmC are not the same Realm Record, then
-        //         i. If SameValue(C, realmC.[[Intrinsics]].[[%Array%]]) is true, set C to undefined.
-        // TODO: Step 4 is ignored, as there are no different realms for now
+        if let Some(c) = c.as_constructor() {
+            // a. Let thisRealm be the current Realm Record.
+            // b. Let realmC be ? GetFunctionRealm(C).
+            // c. If thisRealm and realmC are not the same Realm Record, then
+            if *c == context.intrinsics().constructors().array().constructor {
+                // i. If SameValue(C, realmC.[[Intrinsics]].[[%Array%]]) is true, set C to undefined.
+                // Note: fast path to step 6.
+                return Self::array_create(length, None, context);
+            }
+        }
 
         // 5. If Type(C) is Object, then
         let c = if let Some(c) = c.as_object() {
@@ -368,7 +385,9 @@ impl Array {
             // 8. Return ? Construct(C, « 𝔽(length) »).
             c.construct(&[JsValue::new(length)], Some(c), context)
         } else {
-            context.throw_type_error("Symbol.species must be a constructor")
+            Err(JsNativeError::typ()
+                .with_message("Symbol.species must be a constructor")
+                .into())
         }
     }
 
@@ -399,7 +418,14 @@ impl Array {
         let mapping = match mapfn {
             JsValue::Undefined => None,
             JsValue::Object(o) if o.is_callable() => Some(o),
-            _ => return context.throw_type_error(format!("{} is not a function", mapfn.type_of())),
+            _ => {
+                return Err(JsNativeError::typ()
+                    .with_message(format!(
+                        "{} is not a function",
+                        mapfn.type_of().to_std_string_escaped()
+                    ))
+                    .into())
+            }
         };
 
         // 4. Let usingIterator be ? GetMethod(items, @@iterator).
@@ -433,9 +459,7 @@ impl Array {
                 let next = iterator_record.step(context)?;
 
                 // iv. If next is false, then
-                let next = if let Some(next) = next {
-                    next
-                } else {
+                let Some(next) = next else {
                     // 1. Perform ? Set(A, "length", 𝔽(k), true).
                     a.set("length", k, true, context)?;
 
@@ -469,7 +493,9 @@ impl Array {
             // which is why it's safe to have this as the fallback return
             //
             // 1. Let error be ThrowCompletion(a newly created TypeError object).
-            let error = context.throw_type_error("Invalid array length");
+            let error = Err(JsNativeError::typ()
+                .with_message("Invalid array length")
+                .into());
 
             // 2. Return ? IteratorClose(iteratorRecord, error).
             iterator_record.close(error, context)
@@ -536,10 +562,10 @@ impl Array {
     pub(crate) fn is_array(
         _: &JsValue,
         args: &[JsValue],
-        context: &mut Context,
+        _context: &mut Context,
     ) -> JsResult<JsValue> {
         // 1. Return ? IsArray(arg).
-        args.get_or_undefined(0).is_array(context).map(Into::into)
+        args.get_or_undefined(0).is_array().map(Into::into)
     }
 
     /// `Array.of(...items)`
@@ -565,7 +591,7 @@ impl Array {
         //     a. Let A be ? ArrayCreate(len).
         let a = match this.as_constructor() {
             Some(constructor) => constructor.construct(&[len.into()], None, context)?,
-            _ => Self::array_create(len, None, context)?,
+            _ => Self::array_create(len as u64, None, context)?,
         };
 
         // 6. Let k be 0.
@@ -659,10 +685,12 @@ impl Array {
                 // ii. Let len be ? LengthOfArrayLike(E).
                 let len = item.length_of_array_like(context)?;
                 // iii. If n + len > 2^53 - 1, throw a TypeError exception.
-                if n + len > Number::MAX_SAFE_INTEGER as usize {
-                    return context.throw_type_error(
-                        "length + number of arguments exceeds the max safe integer limit",
-                    );
+                if n + len > Number::MAX_SAFE_INTEGER as u64 {
+                    return Err(JsNativeError::typ()
+                        .with_message(
+                            "length + number of arguments exceeds the max safe integer limit",
+                        )
+                        .into());
                 }
                 // iv. Repeat, while k < len,
                 for k in 0..len {
@@ -685,8 +713,10 @@ impl Array {
             else {
                 // i. NOTE: E is added as a single item rather than spread.
                 // ii. If n ≥ 2^53 - 1, throw a TypeError exception.
-                if n >= Number::MAX_SAFE_INTEGER as usize {
-                    return context.throw_type_error("length exceeds the max safe integer limit");
+                if n >= Number::MAX_SAFE_INTEGER as u64 {
+                    return Err(JsNativeError::typ()
+                        .with_message("length exceeds the max safe integer limit")
+                        .into());
                 }
                 // iii. Perform ? CreateDataPropertyOrThrow(A, ! ToString(𝔽(n)), E).
                 arr.create_data_property_or_throw(n, item, context)?;
@@ -721,14 +751,16 @@ impl Array {
         // 1. Let O be ? ToObject(this value).
         let o = this.to_object(context)?;
         // 2. Let len be ? LengthOfArrayLike(O).
-        let mut len = o.length_of_array_like(context)? as u64;
+        let mut len = o.length_of_array_like(context)?;
         // 3. Let argCount be the number of elements in items.
         let arg_count = args.len() as u64;
         // 4. If len + argCount > 2^53 - 1, throw a TypeError exception.
         if len + arg_count > 2u64.pow(53) - 1 {
-            return context.throw_type_error(
-                "the length + the number of arguments exceed the maximum safe integer limit",
-            );
+            return Err(JsNativeError::typ()
+                .with_message(
+                    "the length + the number of arguments exceed the maximum safe integer limit",
+                )
+                .into());
         }
         // 5. For each element E of items, do
         for element in args.iter().cloned() {
@@ -803,7 +835,7 @@ impl Array {
         let len = o.length_of_array_like(context)?;
         // 3. If IsCallable(callbackfn) is false, throw a TypeError exception.
         let callback = args.get_or_undefined(0).as_callable().ok_or_else(|| {
-            context.construct_type_error("Array.prototype.forEach: invalid callback function")
+            JsNativeError::typ().with_message("Array.prototype.forEach: invalid callback function")
         })?;
         // 4. Let k be 0.
         // 5. Repeat, while k < len,
@@ -851,34 +883,34 @@ impl Array {
         // 4. Else, let sep be ? ToString(separator).
         let separator = args.get_or_undefined(0);
         let separator = if separator.is_undefined() {
-            JsString::new(",")
+            js_string!(",")
         } else {
             separator.to_string(context)?
         };
 
         // 5. Let R be the empty String.
-        let mut r = String::new();
+        let mut r = Vec::new();
         // 6. Let k be 0.
         // 7. Repeat, while k < len,
         for k in 0..len {
             // a. If k > 0, set R to the string-concatenation of R and sep.
             if k > 0 {
-                r.push_str(&separator);
+                r.extend_from_slice(&separator);
             }
             // b. Let element be ? Get(O, ! ToString(𝔽(k))).
             let element = o.get(k, context)?;
             // c. If element is undefined or null, let next be the empty String; otherwise, let next be ? ToString(element).
             let next = if element.is_null_or_undefined() {
-                JsString::new("")
+                js_string!()
             } else {
                 element.to_string(context)?
             };
             // d. Set R to the string-concatenation of R and next.
-            r.push_str(&next);
+            r.extend_from_slice(&next);
             // e. Set k to k + 1.
         }
         // 8. Return R.
-        Ok(r.into())
+        Ok(js_string!(&r[..]).into())
     }
 
     /// `Array.prototype.toString( separator )`
@@ -941,8 +973,8 @@ impl Array {
         while lower != middle {
             // a. Let upper be len - lower - 1.
             let upper = len - lower - 1;
-            // Skiped: b. Let upperP be ! ToString(𝔽(upper)).
-            // Skiped: c. Let lowerP be ! ToString(𝔽(lower)).
+            // Skipped: b. Let upperP be ! ToString(𝔽(upper)).
+            // Skipped: c. Let lowerP be ! ToString(𝔽(lower)).
             // d. Let lowerExists be ? HasProperty(O, lowerP).
             let lower_exists = o.has_property(lower, context)?;
             // e. If lowerExists is true, then
@@ -1070,16 +1102,16 @@ impl Array {
         // 1. Let O be ? ToObject(this value).
         let o = this.to_object(context)?;
         // 2. Let len be ? LengthOfArrayLike(O).
-        let len = o.length_of_array_like(context)? as u64;
+        let len = o.length_of_array_like(context)?;
         // 3. Let argCount be the number of elements in items.
         let arg_count = args.len() as u64;
         // 4. If argCount > 0, then
         if arg_count > 0 {
             // a. If len + argCount > 2^53 - 1, throw a TypeError exception.
             if len + arg_count > 2u64.pow(53) - 1 {
-                return context.throw_type_error(
-                    "length + number of arguments exceeds the max safe integer limit",
-                );
+                return Err(JsNativeError::typ()
+                    .with_message("length + number of arguments exceeds the max safe integer limit")
+                    .into());
             }
             // b. Let k be len.
             let mut k = len;
@@ -1144,7 +1176,7 @@ impl Array {
         let len = o.length_of_array_like(context)?;
         // 3. If IsCallable(callbackfn) is false, throw a TypeError exception.
         let callback = args.get_or_undefined(0).as_callable().ok_or_else(|| {
-            context.construct_type_error("Array.prototype.every: callback is not callable")
+            JsNativeError::typ().with_message("Array.prototype.every: callback is not callable")
         })?;
 
         let this_arg = args.get_or_undefined(1);
@@ -1196,7 +1228,7 @@ impl Array {
         let len = o.length_of_array_like(context)?;
         // 3. If IsCallable(callbackfn) is false, throw a TypeError exception.
         let callback = args.get_or_undefined(0).as_callable().ok_or_else(|| {
-            context.construct_type_error("Array.prototype.map: Callbackfn is not callable")
+            JsNativeError::typ().with_message("Array.prototype.map: Callbackfn is not callable")
         })?;
 
         // 4. Let A be ? ArraySpeciesCreate(O, len).
@@ -1216,7 +1248,7 @@ impl Array {
                 let k_value = o.get(k, context)?;
                 // ii. Let mappedValue be ? Call(callbackfn, thisArg, « kValue, 𝔽(k), O »).
                 let mapped_value =
-                    callback.call(this_arg, &[k_value, k.into(), this.into()], context)?;
+                    callback.call(this_arg, &[k_value, k.into(), o.clone().into()], context)?;
                 // iii. Perform ? CreateDataPropertyOrThrow(A, Pk, mappedValue).
                 a.create_data_property_or_throw(k, mapped_value, context)?;
             }
@@ -1404,7 +1436,7 @@ impl Array {
 
         // 3. If IsCallable(predicate) is false, throw a TypeError exception.
         let predicate = args.get_or_undefined(0).as_callable().ok_or_else(|| {
-            context.construct_type_error("Array.prototype.find: predicate is not callable")
+            JsNativeError::typ().with_message("Array.prototype.find: predicate is not callable")
         })?;
 
         let this_arg = args.get_or_undefined(1);
@@ -1461,7 +1493,8 @@ impl Array {
 
         // 3. If IsCallable(predicate) is false, throw a TypeError exception.
         let predicate = args.get_or_undefined(0).as_callable().ok_or_else(|| {
-            context.construct_type_error("Array.prototype.findIndex: predicate is not callable")
+            JsNativeError::typ()
+                .with_message("Array.prototype.findIndex: predicate is not callable")
         })?;
 
         let this_arg = args.get_or_undefined(1);
@@ -1512,7 +1545,7 @@ impl Array {
 
         // 3. If IsCallable(predicate) is false, throw a TypeError exception.
         let predicate = args.get_or_undefined(0).as_callable().ok_or_else(|| {
-            context.construct_type_error("Array.prototype.findLast: predicate is not callable")
+            JsNativeError::typ().with_message("Array.prototype.findLast: predicate is not callable")
         })?;
 
         let this_arg = args.get_or_undefined(1);
@@ -1564,7 +1597,8 @@ impl Array {
 
         // 3. If IsCallable(predicate) is false, throw a TypeError exception.
         let predicate = args.get_or_undefined(0).as_callable().ok_or_else(|| {
-            context.construct_type_error("Array.prototype.findLastIndex: predicate is not callable")
+            JsNativeError::typ()
+                .with_message("Array.prototype.findLastIndex: predicate is not callable")
         })?;
 
         let this_arg = args.get_or_undefined(1);
@@ -1632,7 +1666,7 @@ impl Array {
         Self::flatten_into_array(
             &a,
             &o,
-            source_len as u64,
+            source_len,
             0,
             depth_num,
             None,
@@ -1669,7 +1703,7 @@ impl Array {
 
         // 3. If ! IsCallable(mapperFunction) is false, throw a TypeError exception.
         let mapper_function = args.get_or_undefined(0).as_callable().ok_or_else(|| {
-            context.construct_type_error("flatMap mapper function is not callable")
+            JsNativeError::typ().with_message("flatMap mapper function is not callable")
         })?;
 
         // 4. Let A be ? ArraySpeciesCreate(O, 0).
@@ -1679,7 +1713,7 @@ impl Array {
         Self::flatten_into_array(
             &a,
             &o,
-            source_len as u64,
+            source_len,
             0,
             1,
             Some(mapper_function),
@@ -1750,7 +1784,7 @@ impl Array {
                 // iv. If depth > 0, then
                 if depth > 0 {
                     // 1. Set shouldFlatten to ? IsArray(element).
-                    should_flatten = element.is_array(context)?;
+                    should_flatten = element.is_array()?;
                 }
 
                 // v. If shouldFlatten is true
@@ -1773,7 +1807,7 @@ impl Array {
                     target_index = Self::flatten_into_array(
                         target,
                         element,
-                        element_len as u64,
+                        element_len,
                         target_index,
                         new_depth,
                         None,
@@ -1785,8 +1819,9 @@ impl Array {
                 } else {
                     // 1. If targetIndex >= 2^53 - 1, throw a TypeError exception
                     if target_index >= Number::MAX_SAFE_INTEGER as u64 {
-                        return context
-                            .throw_type_error("Target index exceeded max safe integer value");
+                        return Err(JsNativeError::typ()
+                            .with_message("Target index exceeded max safe integer value")
+                            .into());
                     }
 
                     // 2. Perform ? CreateDataPropertyOrThrow(target, targetIndex, element)
@@ -2029,7 +2064,7 @@ impl Array {
         // 9. Else,
         } else {
             // 9a. Let insertCount be the number of elements in items.
-            items.len()
+            items.len() as u64
         };
         let actual_delete_count = if start.is_none() {
             // 7b. Let actualDeleteCount be 0.
@@ -2048,17 +2083,17 @@ impl Array {
             // c. Let actualDeleteCount be the result of clamping dc between 0 and len - actualStart.
             let max = len - actual_start;
             match dc {
-                IntegerOrInfinity::Integer(i) => {
-                    usize::try_from(i).unwrap_or_default().clamp(0, max)
-                }
+                IntegerOrInfinity::Integer(i) => u64::try_from(i).unwrap_or_default().clamp(0, max),
                 IntegerOrInfinity::PositiveInfinity => max,
                 IntegerOrInfinity::NegativeInfinity => 0,
             }
         };
 
         // 10. If len + insertCount - actualDeleteCount > 2^53 - 1, throw a TypeError exception.
-        if len + insert_count - actual_delete_count > Number::MAX_SAFE_INTEGER as usize {
-            return context.throw_type_error("Target splice exceeded max safe integer value");
+        if len + insert_count - actual_delete_count > Number::MAX_SAFE_INTEGER as u64 {
+            return Err(JsNativeError::typ()
+                .with_message("Target splice exceeded max safe integer value")
+                .into());
         }
 
         // 11. Let A be ? ArraySpeciesCreate(O, actualDeleteCount).
@@ -2083,7 +2118,7 @@ impl Array {
         arr.set("length", actual_delete_count, true, context)?;
 
         // 15. Let itemCount be the number of elements in items.
-        let item_count = items.len();
+        let item_count = items.len() as u64;
 
         match item_count.cmp(&actual_delete_count) {
             // 16. If itemCount < actualDeleteCount, then
@@ -2156,7 +2191,7 @@ impl Array {
             for (k, item) in items
                 .iter()
                 .enumerate()
-                .map(|(i, val)| (i + actual_start, val))
+                .map(|(i, val)| (i as u64 + actual_start, val))
             {
                 // a. Perform ? Set(O, ! ToString(𝔽(k)), E, true).
                 o.set(k, item, true, context)?;
@@ -2200,7 +2235,7 @@ impl Array {
 
         // 3. If IsCallable(callbackfn) is false, throw a TypeError exception.
         let callback = args.get_or_undefined(0).as_callable().ok_or_else(|| {
-            context.construct_type_error("Array.prototype.filter: `callback` must be callable")
+            JsNativeError::typ().with_message("Array.prototype.filter: `callback` must be callable")
         })?;
         let this_arg = args.get_or_undefined(1);
 
@@ -2264,7 +2299,7 @@ impl Array {
         let len = o.length_of_array_like(context)?;
         // 3. If IsCallable(callbackfn) is false, throw a TypeError exception.
         let callback = args.get_or_undefined(0).as_callable().ok_or_else(|| {
-            context.construct_type_error("Array.prototype.some: callback is not callable")
+            JsNativeError::typ().with_message("Array.prototype.some: callback is not callable")
         })?;
 
         // 4. Let k be 0.
@@ -2315,9 +2350,9 @@ impl Array {
             JsValue::Object(ref obj) if obj.is_callable() => Some(obj),
             JsValue::Undefined => None,
             _ => {
-                return context.throw_type_error(
-                    "The comparison function must be either a function or undefined",
-                )
+                return Err(JsNativeError::typ()
+                    .with_message("The comparison function must be either a function or undefined")
+                    .into())
             }
         };
 
@@ -2361,7 +2396,7 @@ impl Array {
                 // 10. If ySmaller is true, return 1𝔽.
                 // 11. Return +0𝔽.
 
-                // NOTE: skipped IsLessThan because it just makes a lexicographic comparation
+                // NOTE: skipped IsLessThan because it just makes a lexicographic comparison
                 // when x and y are strings
                 Ok(x_str.cmp(&y_str))
             };
@@ -2373,7 +2408,7 @@ impl Array {
         let length = obj.length_of_array_like(context)?;
 
         // 4. Let items be a new empty List.
-        let mut items = Vec::with_capacity(length);
+        let mut items = Vec::with_capacity(length as usize);
 
         // 5. Let k be 0.
         // 6. Repeat, while k < len,
@@ -2391,7 +2426,7 @@ impl Array {
         }
 
         // 7. Let itemCount be the number of elements in items.
-        let item_count = items.len();
+        let item_count = items.len() as u64;
 
         // 8. Sort items using an implementation-defined sequence of calls to SortCompare.
         // If any such call returns an abrupt completion, stop before performing any further
@@ -2449,15 +2484,17 @@ impl Array {
 
         // 3. If IsCallable(callbackfn) is false, throw a TypeError exception.
         let callback = args.get_or_undefined(0).as_callable().ok_or_else(|| {
-            context
-                .construct_type_error("Array.prototype.reduce: callback function is not callable")
+            JsNativeError::typ()
+                .with_message("Array.prototype.reduce: callback function is not callable")
         })?;
 
         // 4. If len = 0 and initialValue is not present, throw a TypeError exception.
         if len == 0 && args.get(1).is_none() {
-            return context.throw_type_error(
-                "Array.prototype.reduce: called on an empty array and with no initial value",
-            );
+            return Err(JsNativeError::typ()
+                .with_message(
+                    "Array.prototype.reduce: called on an empty array and with no initial value",
+                )
+                .into());
         }
 
         // 5. Let k be 0.
@@ -2489,9 +2526,9 @@ impl Array {
             }
             // c. If kPresent is false, throw a TypeError exception.
             if !k_present {
-                return context.throw_type_error(
+                return Err(JsNativeError::typ().with_message(
                     "Array.prototype.reduce: called on an empty array and with no initial value",
-                );
+                ).into());
             }
         }
 
@@ -2544,16 +2581,15 @@ impl Array {
 
         // 3. If IsCallable(callbackfn) is false, throw a TypeError exception.
         let callback = args.get_or_undefined(0).as_callable().ok_or_else(|| {
-            context.construct_type_error(
-                "Array.prototype.reduceRight: callback function is not callable",
-            )
+            JsNativeError::typ()
+                .with_message("Array.prototype.reduceRight: callback function is not callable")
         })?;
 
         // 4. If len is 0 and initialValue is not present, throw a TypeError exception.
         if len == 0 && args.get(1).is_none() {
-            return context.throw_type_error(
+            return Err(JsNativeError::typ().with_message(
                 "Array.prototype.reduceRight: called on an empty array and with no initial value",
-            );
+            ).into());
         }
 
         // 5. Let k be len - 1.
@@ -2584,9 +2620,9 @@ impl Array {
             }
             // c. If kPresent is false, throw a TypeError exception.
             if !k_present {
-                return context.throw_type_error(
+                return Err(JsNativeError::typ().with_message(
                     "Array.prototype.reduceRight: called on an empty array and with no initial value",
-                );
+                ).into());
             }
         }
 
@@ -2732,6 +2768,15 @@ impl Array {
         ))
     }
 
+    /// Creates an `Array.prototype.values( )` function object.
+    pub(crate) fn create_array_prototype_values(context: &mut Context) -> JsFunction {
+        FunctionBuilder::native(context, Self::values)
+            .name("values")
+            .length(0)
+            .constructor(false)
+            .build()
+    }
+
     /// `Array.prototype.keys( )`
     ///
     /// The keys method returns an iterable that iterates over the indexes in the array.
@@ -2784,8 +2829,8 @@ impl Array {
     pub(super) fn get_relative_start(
         context: &mut Context,
         arg: Option<&JsValue>,
-        len: usize,
-    ) -> JsResult<usize> {
+        len: u64,
+    ) -> JsResult<u64> {
         // 1. Let relativeStart be ? ToIntegerOrInfinity(start).
         let relative_start = arg
             .cloned()
@@ -2795,12 +2840,12 @@ impl Array {
             // 2. If relativeStart is -∞, let k be 0.
             IntegerOrInfinity::NegativeInfinity => Ok(0),
             // 3. Else if relativeStart < 0, let k be max(len + relativeStart, 0).
-            IntegerOrInfinity::Integer(i) if i < 0 => Ok(max(len as i64 + i, 0) as usize),
+            IntegerOrInfinity::Integer(i) if i < 0 => Ok(max(len as i64 + i, 0) as u64),
             // Both `as` casts are safe as both variables are non-negative
             // 4. Else, let k be min(relativeStart, len).
-            IntegerOrInfinity::Integer(i) => Ok(min(i, len as i64) as usize),
+            IntegerOrInfinity::Integer(i) => Ok(min(i, len as i64) as u64),
 
-            // Special case - postive infinity. `len` is always smaller than +inf, thus from (4)
+            // Special case - positive infinity. `len` is always smaller than +inf, thus from (4)
             IntegerOrInfinity::PositiveInfinity => Ok(len),
         }
     }
@@ -2809,8 +2854,8 @@ impl Array {
     pub(super) fn get_relative_end(
         context: &mut Context,
         arg: Option<&JsValue>,
-        len: usize,
-    ) -> JsResult<usize> {
+        len: u64,
+    ) -> JsResult<u64> {
         let default_value = JsValue::undefined();
         let value = arg.unwrap_or(&default_value);
         // 1. If end is undefined, let relativeEnd be len [and return it]
@@ -2823,23 +2868,15 @@ impl Array {
                 // 2. If relativeEnd is -∞, let final be 0.
                 IntegerOrInfinity::NegativeInfinity => Ok(0),
                 // 3. Else if relativeEnd < 0, let final be max(len + relativeEnd, 0).
-                IntegerOrInfinity::Integer(i) if i < 0 => Ok(max(len as i64 + i, 0) as usize),
+                IntegerOrInfinity::Integer(i) if i < 0 => Ok(max(len as i64 + i, 0) as u64),
                 // 4. Else, let final be min(relativeEnd, len).
                 // Both `as` casts are safe as both variables are non-negative
-                IntegerOrInfinity::Integer(i) => Ok(min(i, len as i64) as usize),
+                IntegerOrInfinity::Integer(i) => Ok(min(i, len as i64) as u64),
 
-                // Special case - postive infinity. `len` is always smaller than +inf, thus from (4)
+                // Special case - positive infinity. `len` is always smaller than +inf, thus from (4)
                 IntegerOrInfinity::PositiveInfinity => Ok(len),
             }
         }
-    }
-
-    pub(crate) fn values_intrinsic(context: &mut Context) -> JsFunction {
-        FunctionBuilder::native(context, Self::values)
-            .name("values")
-            .length(0)
-            .constructor(false)
-            .build()
     }
 
     /// `Array.prototype [ @@unscopables ]`

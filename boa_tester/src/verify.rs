@@ -83,7 +83,10 @@ fn verify_once(input: &NameProgram, analyses: &Vec<NameProgram>) -> Option<BaseR
             for analysis in analyses {
                 println!("Running: {} with {}", input.name, analysis.name);
                 let mut context = Context::default();
-                context.install_advice(analysis.program.clone());
+                match context.install_advice(analysis.program.clone()) {
+                    Ok(()) => {}
+                    Err(e) => eprintln!("{}", e.display()),
+                };
                 match context.eval(input.program.clone()) {
                     Ok(instr_res) => match uninstr_res.strict_equals(&instr_res) {
                         true => per_analysis_result.push(String::from("Success")),

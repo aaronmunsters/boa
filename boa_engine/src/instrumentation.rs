@@ -5,8 +5,9 @@ use gc::{Finalize, Trace};
 use crate::{
     builtins::Number,
     object::ObjectInitializer,
+    symbol::WellKnownSymbols,
     value::{Numeric, PreferredType},
-    Context, JsBigInt, JsResult, JsValue, symbol::WellKnownSymbols,
+    Context, JsBigInt, JsError, JsNativeError, JsResult, JsValue,
 };
 use tap::Conv;
 
@@ -139,11 +140,12 @@ impl Hooks {
             .clone();
         let operand = args
             .get(1)
-            .expect("Instrumentation: binary hook missing left operand")
+            .expect("Instrumentation: binary hook missing operand")
             .clone();
         let result: JsValue = match operator
             .as_string()
             .expect("Operand type required to be string")
+            .to_std_string_escaped()
             .as_str()
         {
             "void" => JsValue::undefined(),
@@ -167,8 +169,10 @@ impl Hooks {
                 Numeric::BigInt(bigint) => JsBigInt::not(&bigint).into(),
             },
             _op => {
-                return context
-                    .throw_error(format!("Unary hook operator should be known, got {}", _op))
+                context.instrumentation_conf.set_mode_meta();
+                return Err(JsError::from_native(JsNativeError::typ().with_message(
+                    format!("Unary hook operator should be known, got {}", _op),
+                )));
             }
         };
         context.instrumentation_conf.set_mode_meta();
@@ -192,6 +196,7 @@ impl Hooks {
         let result: JsValue = match op
             .as_string()
             .expect("Operand type required to be string")
+            .to_std_string_escaped()
             .as_str()
         {
             "+" => l.add(&r, context)?,
@@ -216,18 +221,23 @@ impl Hooks {
             "<=" => l.le(&r, context)?.into(),
             "in" => {
                 if !r.is_object() {
-                    return context.throw_type_error(format!(
-                        "right-hand side of 'in' should be an object, got {}",
-                        r.type_of()
-                    ));
+                    context.instrumentation_conf.set_mode_meta();
+                    return Err(JsError::from_native(JsNativeError::typ().with_message(
+                        format!(
+                            "right-hand side of 'in' should be an object, got {}",
+                            r.type_of().to_std_string_escaped()
+                        ),
+                    )));
                 }
                 let key = r.to_property_key(context)?;
                 context.has_property(&r, &key)?.into()
             }
             "instanceof" => l.instance_of(&r, context)?.into(),
             _op => {
-                return context
-                    .throw_error(format!("Binary hook operator should be known, got {}", _op))
+                context.instrumentation_conf.set_mode_meta();
+                return Err(JsError::from_native(JsNativeError::typ().with_message(
+                    format!("Binary hook operator should be known, got {}", _op),
+                )));
             }
         };
         context.instrumentation_conf.set_mode_meta();
@@ -244,16 +254,21 @@ impl Hooks {
         let preferred_type: &JsValue = args.get(1).expect(sign_warning);
 
         let preferred_type = match preferred_type.as_string() {
-            Some(preferred_type_str) => match preferred_type_str.as_str() {
+            Some(preferred_type_str) => match preferred_type_str.to_std_string_escaped().as_str() {
                 "default" => PreferredType::Default,
                 "string" => PreferredType::String,
                 "number" => PreferredType::Number,
                 _ => panic!("Instrumentation: Uncaught: to_primitive hook expects 2 arguments"),
             },
-            None => return context.throw_type_error(type_warning),
+            None => {
+                context.instrumentation_conf.set_mode_meta();
+                return Err(JsError::from_native(
+                    JsNativeError::typ().with_message(type_warning),
+                ));
+            }
         };
 
-                // 1. Assert: input is an ECMAScript language value. (always a value not need to check)
+        // 1. Assert: input is an ECMAScript language value. (always a value not need to check)
         // 2. If Type(input) is Object, then
         let res = if value.is_object() {
             // a. Let exoticToPrim be ? GetMethod(input, @@toPrimitive).
@@ -278,7 +293,11 @@ impl Hooks {
                 // v. If Type(result) is not Object, return result.
                 // vi. Throw a TypeError exception.
                 return if result.is_object() {
-                    context.throw_type_error("Symbol.toPrimitive cannot return an object")
+                    context.instrumentation_conf.set_mode_base();
+                    return Err(JsError::from_native(
+                        JsNativeError::typ()
+                            .with_message("Symbol.toPrimitive cannot return an object"),
+                    ));
                 } else {
                     Ok(result)
                 };
@@ -291,7 +310,8 @@ impl Hooks {
             };
 
             // d. Return ? OrdinaryToPrimitive(input, preferredType).
-            value.as_object()
+            value
+                .as_object()
                 .expect("self was not an object")
                 .ordinary_to_primitive(context, preferred_type)
         } else {

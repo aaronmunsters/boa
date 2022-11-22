@@ -2,6 +2,8 @@
 members = [
     "boa_cli",
     "boa_engine",
+    "boa_ast",
+    "boa_parser",
     "boa_gc",
     "boa_interner",
     "boa_profiler",
@@ -9,10 +11,36 @@ members = [
     "boa_unicode",
     "boa_wasm",
     "boa_examples",
+    "boa_macros",
 ]
+
+[workspace.package]
+edition = "2021"
+version = "0.16.0"
+rust-version = "1.65"
+authors = ["boa-dev"]
+repository = "https://github.com/boa-dev/boa"
+license = "Unlicense/MIT"
+description = "Boa is a Javascript lexer, parser and Just-in-Time compiler written in Rust. Currently, it has support for some of the language."
+
+[workspace.dependencies]
+boa_engine = { version = "0.16.0", path = "boa_engine" }
+boa_interner = { version = "0.16.0", path = "boa_interner" }
+boa_gc = { version = "0.16.0", path = "boa_gc" }
+boa_profiler = { version = "0.16.0", path = "boa_profiler" }
+boa_unicode = { version = "0.16.0", path = "boa_unicode" }
+boa_macros = { version = "0.16.0", path = "boa_macros" }
+boa_ast = { version = "0.16.0", path = "boa_ast" }
+boa_parser = { version = "0.16.0", path = "boa_parser" }
 
 [workspace.metadata.workspaces]
 allow_branch = "main"
+
+# The ci profile, designed to reduce size of target directory
+[profile.ci]
+inherits = "dev"
+debug = false
+incremental = false
 
 # The release profile, used for `cargo build --release`.
 [profile.release]

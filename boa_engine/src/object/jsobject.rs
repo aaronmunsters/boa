@@ -4,6 +4,7 @@
 
 use super::{JsPrototype, NativeObject, Object, PropertyMap};
 use crate::{
+    error::JsNativeError,
     object::{ObjectData, ObjectKind},
     property::{PropertyDescriptor, PropertyKey},
     value::PreferredType,
@@ -169,9 +170,9 @@ impl JsObject {
         };
 
         // 5. For each name in methodNames in List order, do
-        for name in &method_names {
+        for name in method_names {
             // a. Let method be ? Get(O, name).
-            let method = self.get(*name, context)?;
+            let method = self.get(name, context)?;
 
             // b. If IsCallable(method) is true, then
             if let Some(method) = method.as_callable() {
@@ -186,7 +187,9 @@ impl JsObject {
         }
 
         // 6. Throw a TypeError exception.
-        context.throw_type_error("cannot convert object to primitive value")
+        Err(JsNativeError::typ()
+            .with_message("cannot convert object to primitive value")
+            .into())
     }
 
     /// Return `true` if it is a native object and the native type is `T`.
@@ -313,7 +316,7 @@ impl JsObject {
         self.borrow().is_array_buffer()
     }
 
-    /// Checks if it is a `Map` object.pub
+    /// Checks if it is a `Map` object.
     ///
     /// # Panics
     ///
@@ -322,6 +325,39 @@ impl JsObject {
     #[track_caller]
     pub fn is_map(&self) -> bool {
         self.borrow().is_map()
+    }
+
+    /// Checks if it's a `MapIterator` object
+    ///
+    /// # Panics
+    ///
+    /// Panics if the object is currently mutably borrowed.
+    #[inline]
+    #[track_caller]
+    pub fn is_map_iterator(&self) -> bool {
+        self.borrow().is_map_iterator()
+    }
+
+    /// Checks if it is a `Set` object
+    ///
+    /// # Panics
+    ///
+    /// Panics if the object is currently mutably borrowed.
+    #[inline]
+    #[track_caller]
+    pub fn is_set(&self) -> bool {
+        self.borrow().is_set()
+    }
+
+    /// Checks if it is a `SetIterator` object
+    ///
+    /// # Panics
+    ///
+    /// Panics if the object is currently mutably borrowed.
+    #[inline]
+    #[track_caller]
+    pub fn is_set_iterator(&self) -> bool {
+        self.borrow().is_set_iterator()
     }
 
     /// Checks if it's a `String` object.
@@ -513,7 +549,9 @@ impl JsObject {
             // b. If IsCallable(getter) is false and getter is not undefined, throw a TypeError exception.
             // todo: extract IsCallable to be callable from Value
             if !getter.is_undefined() && getter.as_object().map_or(true, |o| !o.is_callable()) {
-                return context.throw_type_error("Property descriptor getter must be callable");
+                return Err(JsNativeError::typ()
+                    .with_message("Property descriptor getter must be callable")
+                    .into());
             }
             // c. Set desc.[[Get]] to getter.
             Some(getter)
@@ -529,7 +567,9 @@ impl JsObject {
             // 14.b. If IsCallable(setter) is false and setter is not undefined, throw a TypeError exception.
             // todo: extract IsCallable to be callable from Value
             if !setter.is_undefined() && setter.as_object().map_or(true, |o| !o.is_callable()) {
-                return context.throw_type_error("Property descriptor setter must be callable");
+                return Err(JsNativeError::typ()
+                    .with_message("Property descriptor setter must be callable")
+                    .into());
             }
             // 14.c. Set desc.[[Set]] to setter.
             Some(setter)
@@ -540,10 +580,12 @@ impl JsObject {
         // 15. If desc.[[Get]] is present or desc.[[Set]] is present, then ...
         // a. If desc.[[Value]] is present or desc.[[Writable]] is present, throw a TypeError exception.
         if get.as_ref().or(set.as_ref()).is_some() && desc.inner().is_data_descriptor() {
-            return context.throw_type_error(
-                "Invalid property descriptor.\
+            return Err(JsNativeError::typ()
+                .with_message(
+                    "Invalid property descriptor.\
 Cannot both specify accessors and a value or writable attribute",
-            );
+                )
+                .into());
         }
 
         desc = desc.maybe_get(get).maybe_set(set);
@@ -623,6 +665,19 @@ Cannot both specify accessors and a value or writable attribute",
         Ok(())
     }
 
+    #[inline]
+    pub(crate) fn get_property(&self, key: &PropertyKey) -> Option<PropertyDescriptor> {
+        let mut obj = Some(self.clone());
+
+        while let Some(o) = obj {
+            if let Some(v) = o.borrow().properties.get(key) {
+                return Some(v);
+            }
+            obj = o.borrow().prototype().clone();
+        }
+        None
+    }
+
     /// Helper function for property insertion.
     #[inline]
     #[track_caller]
@@ -686,7 +741,7 @@ Cannot both specify accessors and a value or writable attribute",
 impl AsRef<boa_gc::Cell<Object>> for JsObject {
     #[inline]
     fn as_ref(&self) -> &boa_gc::Cell<Object> {
-        &*self.inner
+        &self.inner
     }
 }
 

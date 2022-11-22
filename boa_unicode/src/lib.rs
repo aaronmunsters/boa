@@ -1,5 +1,5 @@
 //! This library implements the extension to query if a char belongs to a particular unicode identifier property.
-//! Version: Unicode 14.0.0
+//! Version: Unicode 15.0.0
 //!
 //! More information:
 //!  - [Unicode® Standard Annex #31][uax31]
@@ -63,8 +63,7 @@
     clippy::must_use_candidate,
     clippy::missing_errors_doc,
     clippy::as_conversions,
-    clippy::let_unit_value,
-    rustdoc::missing_doc_code_examples
+    clippy::let_unit_value
 )]
 
 mod tables;
@@ -74,7 +73,7 @@ mod tests;
 use unicode_general_category::{get_general_category, GeneralCategory};
 
 /// The version of Unicode.
-pub const UNICODE_VERSION: (u64, u64, u64) = (14, 0, 0);
+pub const UNICODE_VERSION: (u64, u64, u64) = (15, 0, 0);
 
 /// Extend a type of code point to query if a value belongs to a particular Unicode property.
 ///

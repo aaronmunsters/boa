@@ -2,14 +2,14 @@
 //!
 //! Native classes are implemented through the [`Class`][class-trait] trait.
 //! ```
-//!# use boa_engine::{
-//!#    property::Attribute,
-//!#    class::{Class, ClassBuilder},
-//!#    Context, JsResult, JsValue,
-//!#    builtins::JsArgs,
-//!# };
-//!# use boa_gc::{Finalize, Trace};
-//!#
+//! # use boa_engine::{
+//! #    property::Attribute,
+//! #    class::{Class, ClassBuilder},
+//! #    Context, JsResult, JsValue,
+//! #    builtins::JsArgs,
+//! # };
+//! # use boa_gc::{Finalize, Trace};
+//! #
 //! // This does not have to be an enum it can also be a struct.
 //! #[derive(Debug, Trace, Finalize)]
 //! enum Animal {
@@ -30,7 +30,7 @@
 //!         // This is equivalent to `String(arg)`.
 //!         let kind = args.get_or_undefined(0).to_string(context)?;
 //!
-//!         let animal = match kind.as_str() {
+//!         let animal = match kind.to_std_string_escaped().as_str() {
 //!             "cat" => Self::Cat,
 //!             "dog" => Self::Dog,
 //!             _ => Self::Other,
@@ -39,7 +39,7 @@
 //!         Ok(animal)
 //!     }
 //!
-//!     /// This is where the object is intitialized.
+//!     /// This is where the object is initialized.
 //!     fn init(class: &mut ClassBuilder) -> JsResult<()> {
 //!         class.method("speak", 0, |this, _args, _ctx| {
 //!             if let Some(object) = this.as_object() {
@@ -63,6 +63,7 @@
 
 use crate::{
     builtins::function::NativeFunctionSignature,
+    error::JsNativeError,
     object::{ConstructorBuilder, JsFunction, JsObject, NativeObject, ObjectData, PROTOTYPE},
     property::{Attribute, PropertyDescriptor, PropertyKey},
     Context, JsResult, JsValue,
@@ -74,7 +75,7 @@ pub trait Class: NativeObject + Sized {
     const NAME: &'static str;
     /// The amount of arguments the class `constructor` takes, default is `0`.
     const LENGTH: usize = 0;
-    /// The attibutes the class will be binded with, default is `writable`, `enumerable`, `configurable`.
+    /// The attributes the class will be binded with, default is `writable`, `enumerable`, `configurable`.
     const ATTRIBUTES: Attribute = Attribute::all();
 
     /// The constructor of the class.
@@ -104,41 +105,42 @@ impl<T: Class> ClassConstructor for T {
         Self: Sized,
     {
         if this.is_undefined() {
-            return context.throw_type_error(format!(
-                "cannot call constructor of native class `{}` without new",
-                T::NAME
-            ));
+            return Err(JsNativeError::typ()
+                .with_message(format!(
+                    "cannot call constructor of native class `{}` without new",
+                    T::NAME
+                ))
+                .into());
         }
 
-        let class_constructor = context.global_object().clone().get(T::NAME, context)?;
-        let class_constructor = if let JsValue::Object(ref obj) = class_constructor {
-            obj
-        } else {
-            return context.throw_type_error(format!(
-                "invalid constructor for native class `{}` ",
-                T::NAME
-            ));
+        let class = context.global_object().clone().get(T::NAME, context)?;
+        let JsValue::Object(ref class_constructor) = class else {
+            return Err(JsNativeError::typ()
+                .with_message(format!(
+                    "invalid constructor for native class `{}` ",
+                    T::NAME
+                ))
+                .into());
         };
-        let class_prototype =
-            if let JsValue::Object(ref obj) = class_constructor.get(PROTOTYPE, context)? {
-                obj.clone()
-            } else {
-                return context.throw_type_error(format!(
+
+        let JsValue::Object(ref class_prototype) = class_constructor.get(PROTOTYPE, context)? else {
+            return Err(JsNativeError::typ()
+                .with_message(format!(
                     "invalid default prototype for native class `{}`",
                     T::NAME
-                ));
-            };
+                ))
+                .into());
+        };
 
         let prototype = this
             .as_object()
-            .cloned()
             .map(|obj| {
                 obj.get(PROTOTYPE, context)
                     .map(|val| val.as_object().cloned())
             })
             .transpose()?
             .flatten()
-            .unwrap_or(class_prototype);
+            .unwrap_or_else(|| class_prototype.clone());
 
         let native_instance = Self::constructor(this, args, context)?;
         let object_instance = JsObject::from_proto_and_data(

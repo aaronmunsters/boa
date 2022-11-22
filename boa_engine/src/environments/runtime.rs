@@ -1,6 +1,11 @@
-use crate::{environments::CompileTimeEnvironment, object::JsObject, Context, JsResult, JsValue};
-use boa_gc::{Cell, Finalize, Gc, Trace};
-use boa_interner::Sym;
+use std::cell::Cell;
+
+use crate::{
+    environments::CompileTimeEnvironment, error::JsNativeError, object::JsObject, Context, JsValue,
+};
+use boa_gc::{Cell as GcCell, Finalize, Gc, Trace};
+
+use boa_ast::expression::Identifier;
 use rustc_hash::FxHashSet;
 
 /// A declarative environment holds binding values at runtime.
@@ -25,8 +30,9 @@ use rustc_hash::FxHashSet;
 /// All poisoned environments have to be checked for added bindings.
 #[derive(Debug, Trace, Finalize)]
 pub(crate) struct DeclarativeEnvironment {
-    bindings: Cell<Vec<Option<JsValue>>>,
-    compile: Gc<Cell<CompileTimeEnvironment>>,
+    bindings: GcCell<Vec<Option<JsValue>>>,
+    compile: Gc<GcCell<CompileTimeEnvironment>>,
+    #[unsafe_ignore_trace]
     poisoned: Cell<bool>,
     slots: Option<EnvironmentSlots>,
 }
@@ -34,13 +40,13 @@ pub(crate) struct DeclarativeEnvironment {
 /// Describes the different types of internal slot data that an environment can hold.
 #[derive(Clone, Debug, Trace, Finalize)]
 pub(crate) enum EnvironmentSlots {
-    Function(Cell<FunctionSlots>),
+    Function(GcCell<FunctionSlots>),
     Global,
 }
 
 impl EnvironmentSlots {
     /// Return the slots if they are part of a function environment.
-    pub(crate) fn as_function_slots(&self) -> Option<&Cell<FunctionSlots>> {
+    pub(crate) fn as_function_slots(&self) -> Option<&GcCell<FunctionSlots>> {
         if let Self::Function(env) = &self {
             Some(env)
         } else {
@@ -153,17 +159,17 @@ impl FunctionSlots {
     ///  - [ECMAScript specification][spec]
     ///
     /// [spec]: https://tc39.es/ecma262/#sec-function-environment-records-getthisbinding
-    pub(crate) fn get_this_binding(&self) -> Option<&JsValue> {
+    pub(crate) fn get_this_binding(&self) -> Result<&JsValue, JsNativeError> {
         // 1. Assert: envRec.[[ThisBindingStatus]] is not lexical.
         debug_assert!(self.this_binding_status != ThisBindingStatus::Lexical);
 
         // 2. If envRec.[[ThisBindingStatus]] is uninitialized, throw a ReferenceError exception.
         if self.this_binding_status == ThisBindingStatus::Uninitialized {
-            return None;
+            Err(JsNativeError::reference().with_message("Must call super constructor in derived class before accessing 'this' or returning from derived constructor"))
+        } else {
+            // 3. Return envRec.[[ThisValue]].
+            Ok(&self.this)
         }
-
-        // 3. Return envRec.[[ThisValue]].
-        Some(&self.this)
     }
 }
 
@@ -224,10 +230,10 @@ pub struct DeclarativeEnvironmentStack {
 impl DeclarativeEnvironmentStack {
     /// Create a new environment stack with the most outer declarative environment.
     #[inline]
-    pub(crate) fn new(global_compile_environment: Gc<Cell<CompileTimeEnvironment>>) -> Self {
+    pub(crate) fn new(global_compile_environment: Gc<GcCell<CompileTimeEnvironment>>) -> Self {
         Self {
             stack: vec![Gc::new(DeclarativeEnvironment {
-                bindings: Cell::new(Vec::new()),
+                bindings: GcCell::new(Vec::new()),
                 compile: global_compile_environment,
                 poisoned: Cell::new(false),
                 slots: Some(EnvironmentSlots::Global),
@@ -259,8 +265,8 @@ impl DeclarativeEnvironmentStack {
     /// Stop at the next outer function environment.
     pub(crate) fn has_lex_binding_until_function_environment(
         &self,
-        names: &FxHashSet<Sym>,
-    ) -> Option<Sym> {
+        names: &FxHashSet<Identifier>,
+    ) -> Option<Identifier> {
         for env in self.stack.iter().rev() {
             let compile = env.compile.borrow();
             for name in names {
@@ -342,7 +348,7 @@ impl DeclarativeEnvironmentStack {
         panic!("global environment must exist")
     }
 
-    /// Push a declarative environment on the environments stack.
+    /// Push a declarative environment on the environments stack and return it's index.
     ///
     /// # Panics
     ///
@@ -351,22 +357,25 @@ impl DeclarativeEnvironmentStack {
     pub(crate) fn push_declarative(
         &mut self,
         num_bindings: usize,
-        compile_environment: Gc<Cell<CompileTimeEnvironment>>,
-    ) {
+        compile_environment: Gc<GcCell<CompileTimeEnvironment>>,
+    ) -> usize {
         let poisoned = self
             .stack
             .last()
             .expect("global environment must always exist")
             .poisoned
-            .borrow()
-            .to_owned();
+            .get();
+
+        let index = self.stack.len();
 
         self.stack.push(Gc::new(DeclarativeEnvironment {
-            bindings: Cell::new(vec![None; num_bindings]),
+            bindings: GcCell::new(vec![None; num_bindings]),
             compile: compile_environment,
             poisoned: Cell::new(poisoned),
             slots: None,
         }));
+
+        index
     }
 
     /// Push a function environment on the environments stack.
@@ -378,7 +387,7 @@ impl DeclarativeEnvironmentStack {
     pub(crate) fn push_function(
         &mut self,
         num_bindings: usize,
-        compile_environment: Gc<Cell<CompileTimeEnvironment>>,
+        compile_environment: Gc<GcCell<CompileTimeEnvironment>>,
         this: Option<JsValue>,
         function_object: JsObject,
         new_target: Option<JsObject>,
@@ -389,7 +398,7 @@ impl DeclarativeEnvironmentStack {
             .last()
             .expect("global environment must always exist");
 
-        let poisoned = outer.poisoned.borrow().to_owned();
+        let poisoned = outer.poisoned.get();
 
         let this_binding_status = if lexical {
             ThisBindingStatus::Lexical
@@ -406,10 +415,10 @@ impl DeclarativeEnvironmentStack {
         };
 
         self.stack.push(Gc::new(DeclarativeEnvironment {
-            bindings: Cell::new(vec![None; num_bindings]),
+            bindings: GcCell::new(vec![None; num_bindings]),
             compile: compile_environment,
             poisoned: Cell::new(poisoned),
-            slots: Some(EnvironmentSlots::Function(Cell::new(FunctionSlots {
+            slots: Some(EnvironmentSlots::Function(GcCell::new(FunctionSlots {
                 this,
                 this_binding_status,
                 function_object,
@@ -426,18 +435,18 @@ impl DeclarativeEnvironmentStack {
     pub(crate) fn push_function_inherit(
         &mut self,
         num_bindings: usize,
-        compile_environment: Gc<Cell<CompileTimeEnvironment>>,
+        compile_environment: Gc<GcCell<CompileTimeEnvironment>>,
     ) {
         let outer = self
             .stack
             .last()
             .expect("global environment must always exist");
 
-        let poisoned = outer.poisoned.borrow().to_owned();
+        let poisoned = outer.poisoned.get();
         let slots = outer.slots.clone();
 
         self.stack.push(Gc::new(DeclarativeEnvironment {
-            bindings: Cell::new(vec![None; num_bindings]),
+            bindings: GcCell::new(vec![None; num_bindings]),
             compile: compile_environment,
             poisoned: Cell::new(poisoned),
             slots,
@@ -451,6 +460,22 @@ impl DeclarativeEnvironmentStack {
         self.stack
             .pop()
             .expect("environment stack is cannot be empty")
+    }
+
+    /// Get the most outer function environment slots.
+    ///
+    /// # Panics
+    ///
+    /// Panics if no environment exists on the stack.
+    #[inline]
+    pub(crate) fn current_function_slots(&self) -> &EnvironmentSlots {
+        for env in self.stack.iter().rev() {
+            if let Some(slots) = &env.slots {
+                return slots;
+            }
+        }
+
+        panic!("global environment must exist")
     }
 
     /// Get the most outer environment.
@@ -471,7 +496,7 @@ impl DeclarativeEnvironmentStack {
     /// # Panics
     ///
     /// Panics if no environment exists on the stack.
-    pub(crate) fn current_compile_environment(&self) -> Gc<Cell<CompileTimeEnvironment>> {
+    pub(crate) fn current_compile_environment(&self) -> Gc<GcCell<CompileTimeEnvironment>> {
         self.stack
             .last()
             .expect("global environment must always exist")
@@ -486,24 +511,21 @@ impl DeclarativeEnvironmentStack {
     /// Panics if no environment exists on the stack.
     #[inline]
     pub(crate) fn poison_current(&mut self) {
-        let mut poisoned = self
-            .stack
+        self.stack
             .last()
             .expect("global environment must always exist")
             .poisoned
-            .borrow_mut();
-        *poisoned = true;
+            .set(true);
     }
 
     /// Mark that there may be added binding in all environments.
     #[inline]
     pub(crate) fn poison_all(&mut self) {
         for env in &mut self.stack {
-            let mut poisoned = env.poisoned.borrow_mut();
-            if *poisoned {
+            if env.poisoned.get() {
                 return;
             }
-            *poisoned = true;
+            env.poisoned.set(true);
         }
     }
 
@@ -517,7 +539,7 @@ impl DeclarativeEnvironmentStack {
         &self,
         mut environment_index: usize,
         mut binding_index: usize,
-        name: Sym,
+        name: Identifier,
     ) -> Option<JsValue> {
         if environment_index != self.stack.len() - 1 {
             for env_index in (environment_index + 1..self.stack.len()).rev() {
@@ -525,7 +547,7 @@ impl DeclarativeEnvironmentStack {
                     .stack
                     .get(env_index)
                     .expect("environment index must be in range");
-                if !*env.poisoned.borrow() {
+                if !env.poisoned.get() {
                     break;
                 }
                 let compile = env.compile.borrow();
@@ -554,9 +576,9 @@ impl DeclarativeEnvironmentStack {
     /// This only considers function environments that are poisoned.
     /// All other bindings are accessed via indices.
     #[inline]
-    pub(crate) fn get_value_global_poisoned(&self, name: Sym) -> Option<JsValue> {
+    pub(crate) fn get_value_if_global_poisoned(&self, name: Identifier) -> Option<JsValue> {
         for env in self.stack.iter().rev() {
-            if !*env.poisoned.borrow() {
+            if !env.poisoned.get() {
                 return None;
             }
             let compile = env.compile.borrow();
@@ -612,7 +634,7 @@ impl DeclarativeEnvironmentStack {
         &mut self,
         mut environment_index: usize,
         mut binding_index: usize,
-        name: Sym,
+        name: Identifier,
         value: JsValue,
     ) -> bool {
         if environment_index != self.stack.len() - 1 {
@@ -621,7 +643,7 @@ impl DeclarativeEnvironmentStack {
                     .stack
                     .get(env_index)
                     .expect("environment index must be in range");
-                if !*env.poisoned.borrow() {
+                if !env.poisoned.get() {
                     break;
                 }
                 let compile = env.compile.borrow();
@@ -687,9 +709,13 @@ impl DeclarativeEnvironmentStack {
     ///
     /// Panics if the environment or binding index are out of range.
     #[inline]
-    pub(crate) fn put_value_global_poisoned(&mut self, name: Sym, value: &JsValue) -> bool {
+    pub(crate) fn put_value_if_global_poisoned(
+        &mut self,
+        name: Identifier,
+        value: &JsValue,
+    ) -> bool {
         for env in self.stack.iter().rev() {
-            if !*env.poisoned.borrow() {
+            if !env.poisoned.get() {
                 return false;
             }
             let compile = env.compile.borrow();
@@ -711,6 +737,37 @@ impl DeclarativeEnvironmentStack {
         }
         false
     }
+
+    /// Checks if the name only exists as a global property.
+    ///
+    /// A binding could be marked as `global`, and at the same time, exist in a deeper environment
+    /// context; if the global context is poisoned, an `eval` call could have added a binding that is
+    /// not global with the same name as the global binding. This double checks that the binding name
+    /// is truly a global property.
+    ///
+    /// # Panics
+    ///
+    /// Panics if the environment or binding index are out of range.
+    #[inline]
+    pub(crate) fn is_only_global_property(&mut self, name: Identifier) -> bool {
+        for env in self
+            .stack
+            .split_first()
+            .expect("global environment must exist")
+            .1
+            .iter()
+            .rev()
+        {
+            if !env.poisoned.get() {
+                return true;
+            }
+            let compile = env.compile.borrow();
+            if compile.is_function() && compile.get_binding(name).is_some() {
+                return false;
+            }
+        }
+        true
+    }
 }
 
 /// A binding locator contains all information about a binding that is needed to resolve it at runtime.
@@ -718,18 +775,19 @@ impl DeclarativeEnvironmentStack {
 /// Binding locators get created at bytecode compile time and are accessible at runtime via the [`crate::vm::CodeBlock`].
 #[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
 pub(crate) struct BindingLocator {
-    name: Sym,
+    name: Identifier,
     environment_index: usize,
     binding_index: usize,
     global: bool,
     mutate_immutable: bool,
+    silent: bool,
 }
 
 impl BindingLocator {
     /// Creates a new declarative binding locator that has knows indices.
     #[inline]
     pub(in crate::environments) fn declarative(
-        name: Sym,
+        name: Identifier,
         environment_index: usize,
         binding_index: usize,
     ) -> Self {
@@ -739,37 +797,53 @@ impl BindingLocator {
             binding_index,
             global: false,
             mutate_immutable: false,
+            silent: false,
         }
     }
 
     /// Creates a binding locator that indicates that the binding is on the global object.
     #[inline]
-    pub(in crate::environments) fn global(name: Sym) -> Self {
+    pub(in crate::environments) fn global(name: Identifier) -> Self {
         Self {
             name,
             environment_index: 0,
             binding_index: 0,
             global: true,
             mutate_immutable: false,
+            silent: false,
         }
     }
 
     /// Creates a binding locator that indicates that it was attempted to mutate an immutable binding.
     /// At runtime this should always produce a type error.
     #[inline]
-    pub(in crate::environments) fn mutate_immutable(name: Sym) -> Self {
+    pub(in crate::environments) fn mutate_immutable(name: Identifier) -> Self {
         Self {
             name,
             environment_index: 0,
             binding_index: 0,
             global: false,
             mutate_immutable: true,
+            silent: false,
+        }
+    }
+
+    /// Creates a binding locator that indicates that any action is silently ignored.
+    #[inline]
+    pub(in crate::environments) fn silent(name: Identifier) -> Self {
+        Self {
+            name,
+            environment_index: 0,
+            binding_index: 0,
+            global: false,
+            mutate_immutable: false,
+            silent: true,
         }
     }
 
     /// Returns the name of the binding.
     #[inline]
-    pub(crate) fn name(&self) -> Sym {
+    pub(crate) fn name(&self) -> Identifier {
         self.name
     }
 
@@ -791,14 +865,23 @@ impl BindingLocator {
         self.binding_index
     }
 
+    /// Returns if the binding is a silent operation.
+    #[inline]
+    pub(crate) fn is_silent(&self) -> bool {
+        self.silent
+    }
+
     /// Helper method to throws an error if the binding access is illegal.
     #[inline]
-    pub(crate) fn throw_mutate_immutable(&self, context: &mut Context) -> JsResult<()> {
+    pub(crate) fn throw_mutate_immutable(
+        &self,
+        context: &mut Context,
+    ) -> Result<(), JsNativeError> {
         if self.mutate_immutable {
-            context.throw_type_error(format!(
+            Err(JsNativeError::typ().with_message(format!(
                 "cannot mutate an immutable binding '{}'",
-                context.interner().resolve_expect(self.name)
-            ))
+                context.interner().resolve_expect(self.name.sym())
+            )))
         } else {
             Ok(())
         }

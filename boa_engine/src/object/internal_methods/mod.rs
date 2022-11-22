@@ -465,7 +465,7 @@ pub(crate) fn ordinary_get_own_property(
     // 7. Set D.[[Enumerable]] to the value of X's [[Enumerable]] attribute.
     // 8. Set D.[[Configurable]] to the value of X's [[Configurable]] attribute.
     // 9. Return D.
-    Ok(obj.borrow().properties.get(key).cloned())
+    Ok(obj.borrow().properties.get(key))
 }
 
 /// Abstract operation `OrdinaryDefineOwnProperty`.
@@ -725,12 +725,7 @@ pub(crate) fn ordinary_own_property_keys(
     let mut keys = Vec::new();
 
     let ordered_indexes = {
-        let mut indexes: Vec<_> = obj
-            .borrow()
-            .properties
-            .index_property_keys()
-            .copied()
-            .collect();
+        let mut indexes: Vec<_> = obj.borrow().properties.index_property_keys().collect();
         indexes.sort_unstable();
         indexes
     };
@@ -799,11 +794,8 @@ pub(crate) fn validate_and_apply_property_descriptor(
         Profiler::global().start_event("Object::validate_and_apply_property_descriptor", "object");
     // 1. Assert: If O is not undefined, then IsPropertyKey(P) is true.
 
-    let mut current = if let Some(own) = current {
-        own
-    }
-    // 2. If current is undefined, then
-    else {
+    let Some(mut current) = current else {
+        // 2. If current is undefined, then
         // a. If extensible is false, return false.
         if !extensible {
             return false;

@@ -1,3 +1,6 @@
+use boa_macros::utf16;
+use indexmap::IndexSet;
+use once_cell::sync::Lazy;
 use std::num::NonZeroUsize;
 
 #[cfg(feature = "serde")]
@@ -10,6 +13,7 @@ use serde::{Deserialize, Serialize};
 #[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 #[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
 #[cfg_attr(feature = "serde", serde(transparent))]
+#[cfg_attr(feature = "fuzz", derive(arbitrary::Arbitrary))]
 #[allow(clippy::unsafe_derive_deserialize)]
 pub struct Sym {
     value: NonZeroUsize,
@@ -82,6 +86,24 @@ impl Sym {
     /// Symbol for the `"public"` string.
     pub const PUBLIC: Self = unsafe { Self::new_unchecked(22) };
 
+    /// Symbol for the `"anonymous"` string.
+    pub const ANONYMOUS: Self = unsafe { Self::new_unchecked(23) };
+
+    /// Symbol for the `"true"` string.
+    pub const TRUE: Self = unsafe { Self::new_unchecked(24) };
+
+    /// Symbol for the `"false"` string.
+    pub const FALSE: Self = unsafe { Self::new_unchecked(25) };
+
+    /// Symbol for the `"async"` string.
+    pub const ASYNC: Self = unsafe { Self::new_unchecked(26) };
+
+    /// Symbol for the `"of"` string.
+    pub const OF: Self = unsafe { Self::new_unchecked(27) };
+
+    /// Symbol for the `"target"` string.
+    pub const TARGET: Self = unsafe { Self::new_unchecked(28) };
+
     /// Creates a new [`Sym`] from the provided `value`, or returns `None` if `index` is zero.
     #[inline]
     pub(super) fn new(value: usize) -> Option<Self> {
@@ -106,43 +128,70 @@ impl Sym {
 
     /// Returns the internal value of the [`Sym`]
     #[inline]
-    pub(super) const fn get(self) -> usize {
+    pub const fn get(self) -> usize {
         self.value.get()
     }
 }
 
-/// Ordered set of commonly used static strings.
-///
-/// # Note
-///
-/// `COMMON_STRINGS` and the constants defined in [`Sym`] must always
-/// be in sync.
-pub(super) static COMMON_STRINGS: phf::OrderedSet<&'static str> = {
-    const COMMON_STRINGS: phf::OrderedSet<&'static str> = phf::phf_ordered_set! {
-        "",
-        "arguments",
-        "await",
-        "yield",
-        "eval",
-        "default",
-        "null",
-        "RegExp",
-        "get",
-        "set",
-        "<main>",
-        "raw",
-        "static",
-        "prototype",
-        "constructor",
-        "implements",
-        "interface",
-        "let",
-        "package",
-        "private",
-        "protected",
-        "public",
+macro_rules! create_static_strings {
+    ( $( $s:literal ),+ ) => {
+        /// Ordered set of commonly used static `UTF-8` strings.
+        ///
+        /// # Note
+        ///
+        /// `COMMON_STRINGS_UTF8`, `COMMON_STRINGS_UTF16` and the constants
+        /// defined in [`Sym`] must always be in sync.
+        pub(super) static COMMON_STRINGS_UTF8: phf::OrderedSet<&'static str> = {
+            const COMMON_STRINGS: phf::OrderedSet<&'static str> = phf::phf_ordered_set! {
+                $( $s ),+
+            };
+            // A `COMMON_STRINGS` of size `usize::MAX` would cause an overflow on our `Interner`
+            sa::const_assert!(COMMON_STRINGS.len() < usize::MAX);
+            COMMON_STRINGS
+        };
+
+        /// Ordered set of commonly used static `UTF-16` strings.
+        ///
+        /// # Note
+        ///
+        /// `COMMON_STRINGS_UTF8`, `COMMON_STRINGS_UTF16` and the constants
+        /// defined in [`Sym`] must always be in sync.
+        // FIXME: use phf when const expressions are allowed. https://github.com/rust-phf/rust-phf/issues/188
+        pub(super) static COMMON_STRINGS_UTF16: Lazy<IndexSet<&'static [u16]>> = Lazy::new(|| {
+            let mut set = IndexSet::with_capacity(COMMON_STRINGS_UTF8.len());
+            $( set.insert(utf16!($s)); )+
+            set
+        });
     };
-    // A `COMMON_STRINGS` of size `usize::MAX` would cause an overflow on our `Interner`
-    sa::const_assert!(COMMON_STRINGS.len() < usize::MAX);
-    COMMON_STRINGS
-};
+}
+
+create_static_strings! {
+    "",
+    "arguments",
+    "await",
+    "yield",
+    "eval",
+    "default",
+    "null",
+    "RegExp",
+    "get",
+    "set",
+    "<main>",
+    "raw",
+    "static",
+    "prototype",
+    "constructor",
+    "implements",
+    "interface",
+    "let",
+    "package",
+    "private",
+    "protected",
+    "public",
+    "anonymous",
+    "true",
+    "false",
+    "async",
+    "of",
+    "target"
+}

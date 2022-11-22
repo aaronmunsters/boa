@@ -1,19 +1,30 @@
+mod async_from_sync_iterator;
+
 use crate::{
     builtins::{
         regexp::regexp_string_iterator::RegExpStringIterator,
         string::string_iterator::StringIterator, ArrayIterator, ForInIterator, MapIterator,
         SetIterator,
     },
+    error::JsNativeError,
     object::{JsObject, ObjectInitializer},
     symbol::WellKnownSymbols,
     Context, JsResult, JsValue,
 };
+use async_from_sync_iterator::create_async_from_sync_iterator_prototype;
+use boa_gc::{Finalize, Trace};
 use boa_profiler::Profiler;
+
+pub(crate) use async_from_sync_iterator::AsyncFromSyncIterator;
 
 #[derive(Debug, Default)]
 pub struct IteratorPrototypes {
     /// %IteratorPrototype%
     iterator_prototype: JsObject,
+    /// %AsyncIteratorPrototype%
+    async_iterator_prototype: JsObject,
+    /// %AsyncFromSyncIteratorPrototype%
+    async_from_sync_iterator_prototype: JsObject,
     /// %MapIteratorPrototype%
     array_iterator: JsObject,
     /// %SetIteratorPrototype%
@@ -33,6 +44,8 @@ impl IteratorPrototypes {
         let _timer = Profiler::global().start_event("IteratorPrototypes::init", "init");
 
         let iterator_prototype = create_iterator_prototype(context);
+        let async_iterator_prototype = create_async_iterator_prototype(context);
+        let async_from_sync_iterator_prototype = create_async_from_sync_iterator_prototype(context);
         Self {
             array_iterator: ArrayIterator::create_prototype(iterator_prototype.clone(), context),
             set_iterator: SetIterator::create_prototype(iterator_prototype.clone(), context),
@@ -44,6 +57,8 @@ impl IteratorPrototypes {
             map_iterator: MapIterator::create_prototype(iterator_prototype.clone(), context),
             for_in_iterator: ForInIterator::create_prototype(iterator_prototype.clone(), context),
             iterator_prototype,
+            async_iterator_prototype,
+            async_from_sync_iterator_prototype,
         }
     }
 
@@ -55,6 +70,16 @@ impl IteratorPrototypes {
     #[inline]
     pub fn iterator_prototype(&self) -> JsObject {
         self.iterator_prototype.clone()
+    }
+
+    #[inline]
+    pub fn async_iterator_prototype(&self) -> JsObject {
+        self.async_iterator_prototype.clone()
+    }
+
+    #[inline]
+    pub fn async_from_sync_iterator_prototype(&self) -> JsObject {
+        self.async_from_sync_iterator_prototype.clone()
     }
 
     #[inline]
@@ -145,11 +170,13 @@ impl JsValue {
                     let sync_method = self
                         .get_method(WellKnownSymbols::iterator(), context)?
                         .map_or(Self::Undefined, Self::from);
+
                     // 2. Let syncIteratorRecord be ? GetIterator(obj, sync, syncMethod).
-                    let _sync_iterator_record =
-                        self.get_iterator(context, Some(IteratorHint::Sync), Some(sync_method));
+                    let sync_iterator_record =
+                        self.get_iterator(context, Some(IteratorHint::Sync), Some(sync_method))?;
+
                     // 3. Return ! CreateAsyncFromSyncIterator(syncIteratorRecord).
-                    todo!("CreateAsyncFromSyncIterator");
+                    return Ok(AsyncFromSyncIterator::create(sync_iterator_record, context));
                 }
             } else {
                 // b. Otherwise, set method to ? GetMethod(obj, @@iterator).
@@ -164,7 +191,7 @@ impl JsValue {
         // 4. If Type(iterator) is not Object, throw a TypeError exception.
         let iterator_obj = iterator
             .as_object()
-            .ok_or_else(|| context.construct_type_error("the iterator is not an object"))?;
+            .ok_or_else(|| JsNativeError::typ().with_message("the iterator is not an object"))?;
 
         // 5. Let nextMethod be ? GetV(iterator, "next").
         let next_method = iterator.get_v("next", context)?;
@@ -207,6 +234,11 @@ pub struct IteratorResult {
 }
 
 impl IteratorResult {
+    /// Create a new `IteratorResult`.
+    pub(crate) fn new(object: JsObject) -> Self {
+        Self { object }
+    }
+
     /// `IteratorComplete ( iterResult )`
     ///
     /// The abstract operation `IteratorComplete` takes argument `iterResult` (an `Object`) and
@@ -248,7 +280,7 @@ impl IteratorResult {
 ///  - [ECMA reference][spec]
 ///
 /// [spec]: https://tc39.es/ecma262/#sec-iterator-records
-#[derive(Debug)]
+#[derive(Clone, Debug, Finalize, Trace)]
 pub struct IteratorRecord {
     /// `[[Iterator]]`
     ///
@@ -321,11 +353,9 @@ impl IteratorRecord {
 
         // Note: We check if iteratorRecord.[[NextMethod]] is callable here.
         // This check would happen in `Call` according to the spec, but we do not implement call for `JsValue`.
-        let next_method = if let Some(next_method) = self.next_method.as_callable() {
-            next_method
-        } else {
-            return context.throw_type_error("iterable next method not a function");
-        };
+        let next_method = self.next_method.as_callable().ok_or_else(|| {
+            JsNativeError::typ().with_message("iterable next method not a function")
+        })?;
 
         let result = if let Some(value) = value {
             // 2. Else,
@@ -339,11 +369,14 @@ impl IteratorRecord {
 
         // 3. If Type(result) is not Object, throw a TypeError exception.
         // 4. Return result.
-        if let Some(o) = result.as_object() {
-            Ok(IteratorResult { object: o.clone() })
-        } else {
-            context.throw_type_error("next value should be an object")
-        }
+        result
+            .as_object()
+            .map(|o| IteratorResult { object: o.clone() })
+            .ok_or_else(|| {
+                JsNativeError::typ()
+                    .with_message("next value should be an object")
+                    .into()
+            })
     }
 
     /// `IteratorStep ( iteratorRecord )`
@@ -437,7 +470,9 @@ impl IteratorRecord {
             Ok(completion)
         } else {
             // 7. If Type(innerResult.[[Value]]) is not Object, throw a TypeError exception.
-            context.throw_type_error("inner result was not an object")
+            Err(JsNativeError::typ()
+                .with_message("inner result was not an object")
+                .into())
         }
     }
 }
@@ -506,3 +541,24 @@ macro_rules! if_abrupt_close_iterator {
 
 // Export macro to crate level
 pub(crate) use if_abrupt_close_iterator;
+
+/// Create the `%AsyncIteratorPrototype%` object
+///
+/// More information:
+///  - [ECMA reference][spec]
+///
+/// [spec]: https://tc39.es/ecma262/#sec-asynciteratorprototype
+#[inline]
+fn create_async_iterator_prototype(context: &mut Context) -> JsObject {
+    let _timer = Profiler::global().start_event("AsyncIteratorPrototype", "init");
+
+    let symbol_iterator = WellKnownSymbols::async_iterator();
+    let iterator_prototype = ObjectInitializer::new(context)
+        .function(
+            |v, _, _| Ok(v.clone()),
+            (symbol_iterator, "[Symbol.asyncIterator]"),
+            0,
+        )
+        .build();
+    iterator_prototype
+}

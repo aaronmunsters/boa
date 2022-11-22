@@ -1,4 +1,4 @@
-use crate::{exec, Context, JsValue};
+use crate::{check_output, exec, Context, JsValue, TestAction};
 
 #[test]
 fn typeof_string() {
@@ -43,7 +43,14 @@ fn try_catch_finally_from_init() {
         }
     "#;
 
-    assert_eq!(Context::default().eval(source.as_bytes()), Err("h".into()));
+    assert_eq!(
+        Context::default()
+            .eval(source.as_bytes())
+            .unwrap_err()
+            .as_opaque()
+            .unwrap(),
+        &"h".into()
+    );
 }
 
 #[test]
@@ -61,8 +68,8 @@ fn multiple_catches() {
     "#;
 
     assert_eq!(
-        Context::default().eval(source.as_bytes()),
-        Ok(JsValue::Undefined)
+        Context::default().eval(source.as_bytes()).unwrap(),
+        JsValue::Undefined
     );
 }
 
@@ -80,8 +87,8 @@ fn use_last_expr_try_block() {
     "#;
 
     assert_eq!(
-        Context::default().eval(source.as_bytes()),
-        Ok(JsValue::from("Hello!"))
+        Context::default().eval(source.as_bytes()).unwrap(),
+        JsValue::from("Hello!")
     );
 }
 #[test]
@@ -98,8 +105,8 @@ fn use_last_expr_catch_block() {
     "#;
 
     assert_eq!(
-        Context::default().eval(source.as_bytes()),
-        Ok(JsValue::from("Hello!"))
+        Context::default().eval(source.as_bytes()).unwrap(),
+        JsValue::from("Hello!")
     );
 }
 
@@ -114,8 +121,8 @@ fn no_use_last_expr_finally_block() {
     "#;
 
     assert_eq!(
-        Context::default().eval(source.as_bytes()),
-        Ok(JsValue::undefined())
+        Context::default().eval(source.as_bytes()).unwrap(),
+        JsValue::undefined()
     );
 }
 
@@ -133,7 +140,87 @@ fn finally_block_binding_env() {
     "#;
 
     assert_eq!(
-        Context::default().eval(source.as_bytes()),
-        Ok(JsValue::from("Hey hey people"))
+        Context::default().eval(source.as_bytes()).unwrap(),
+        JsValue::from("Hey hey people")
     );
+}
+
+#[test]
+fn run_super_method_in_object() {
+    let source = r#"
+        let proto = {
+            m() { return "super"; }
+        };
+        let obj = {
+            v() { return super.m(); }
+        };
+        Object.setPrototypeOf(obj, proto);
+        obj.v();
+    "#;
+
+    assert_eq!(
+        Context::default().eval(source.as_bytes()).unwrap(),
+        JsValue::from("super")
+    );
+}
+
+#[test]
+fn get_reference_by_super() {
+    let source = r#"
+        var fromA, fromB;
+        var A = { fromA: 'a', fromB: 'a' };
+        var B = { fromB: 'b' };
+        Object.setPrototypeOf(B, A);
+        var obj = {
+            fromA: 'c',
+            fromB: 'c',
+            method() {
+                fromA = (() => { return super.fromA; })();
+                fromB = (() => { return super.fromB; })();
+            }
+        };
+        Object.setPrototypeOf(obj, B);
+        obj.method();
+        fromA + fromB
+    "#;
+
+    assert_eq!(
+        Context::default().eval(source.as_bytes()).unwrap(),
+        JsValue::from("ab")
+    );
+}
+
+#[test]
+fn order_of_execution_in_assigment() {
+    let scenario = r#"
+        let i = 0;
+        let array = [[]];
+
+        array[i++][i++] = i++;
+    "#;
+
+    check_output(&[
+        TestAction::Execute(scenario),
+        TestAction::TestEq("i", "3"),
+        TestAction::TestEq("array.length", "1"),
+        TestAction::TestEq("array[0].length", "2"),
+    ]);
+}
+
+#[test]
+fn order_of_execution_in_assigment_with_comma_expressions() {
+    let scenario = r#"
+        let result = "";
+        function f(i) {
+            result += i;
+        }
+        let a = [[]];
+    
+        (f(1), a)[(f(2), 0)][(f(3), 0)] = (f(4), 123);
+    "#;
+
+    check_output(&[
+        TestAction::Execute(scenario),
+        TestAction::TestEq("result", "\"1234\""),
+    ]);
 }

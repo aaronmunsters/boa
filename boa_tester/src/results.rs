@@ -187,7 +187,7 @@ fn update_gh_pages_repo(path: &Path, verbose: u8) {
 
         // We run the command to pull the gh-pages branch: git -C ../gh-pages/ pull origin
         Command::new("git")
-            .args(&["-C", "../gh-pages", "pull", "--ff-only"])
+            .args(["-C", "../gh-pages", "pull", "--ff-only"])
             .output()
             .expect("could not update GitHub Pages");
 
@@ -246,51 +246,66 @@ pub(crate) fn compare_results(base: &Path, new: &Path, markdown: bool) {
     let test_diff = compute_result_diff(Path::new(""), &base_results.results, &new_results.results);
 
     if markdown {
-        use num_format::{Locale, ToFormattedString};
+        /// Simple function to add commas as thousands separator for integers.
+        fn pretty_int(i: isize) -> String {
+            let mut res = String::new();
+
+            for (idx, val) in i.abs().to_string().chars().rev().enumerate() {
+                if idx != 0 && idx % 3 == 0 {
+                    res.insert(0, ',');
+                }
+                res.insert(0, val);
+            }
+            res
+        }
 
         /// Generates a proper diff format, with some bold text if things change.
         fn diff_format(diff: isize) -> String {
             format!(
                 "{}{}{}{}",
                 if diff == 0 { "" } else { "**" },
-                if diff > 0 { "+" } else { "" },
-                diff.to_formatted_string(&Locale::en),
+                if diff.is_positive() {
+                    "+"
+                } else if diff.is_negative() {
+                    "-"
+                } else {
+                    ""
+                },
+                pretty_int(diff),
                 if diff == 0 { "" } else { "**" }
             )
         }
-
-        println!("#### VM implementation");
 
         println!("| Test result | main count | PR count | difference |");
         println!("| :---------: | :----------: | :------: | :--------: |");
         println!(
             "| Total | {} | {} | {} |",
-            base_total.to_formatted_string(&Locale::en),
-            new_total.to_formatted_string(&Locale::en),
+            pretty_int(base_total),
+            pretty_int(new_total),
             diff_format(total_diff),
         );
         println!(
             "| Passed | {} | {} | {} |",
-            base_passed.to_formatted_string(&Locale::en),
-            new_passed.to_formatted_string(&Locale::en),
+            pretty_int(base_passed),
+            pretty_int(new_passed),
             diff_format(passed_diff),
         );
         println!(
             "| Ignored | {} | {} | {} |",
-            base_ignored.to_formatted_string(&Locale::en),
-            new_ignored.to_formatted_string(&Locale::en),
+            pretty_int(base_ignored),
+            pretty_int(new_ignored),
             diff_format(ignored_diff),
         );
         println!(
             "| Failed | {} | {} | {} |",
-            base_failed.to_formatted_string(&Locale::en),
-            new_failed.to_formatted_string(&Locale::en),
+            pretty_int(base_failed),
+            pretty_int(new_failed),
             diff_format(failed_diff),
         );
         println!(
             "| Panics | {} | {} | {} |",
-            base_panics.to_formatted_string(&Locale::en),
-            new_panics.to_formatted_string(&Locale::en),
+            pretty_int(base_panics),
+            pretty_int(new_panics),
             diff_format(panic_diff),
         );
         println!(

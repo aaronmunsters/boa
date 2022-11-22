@@ -1,6 +1,7 @@
 use crate::{
     builtins::Array,
     context::intrinsics::{StandardConstructor, StandardConstructors},
+    error::JsNativeError,
     object::JsObject,
     property::{PropertyDescriptor, PropertyDescriptorBuilder, PropertyKey, PropertyNameKind},
     symbol::WellKnownSymbols,
@@ -42,7 +43,7 @@ impl IntegrityLevel {
 }
 
 impl JsObject {
-    /// Cehck if object is extensible.
+    /// Check if object is extensible.
     ///
     /// More information:
     ///  - [ECMAScript reference][spec]
@@ -91,7 +92,9 @@ impl JsObject {
         let success = self.__set__(key.clone(), value.into(), self.clone().into(), context)?;
         // 5. If success is false and Throw is true, throw a TypeError exception.
         if !success && throw {
-            return context.throw_type_error(format!("cannot set non-writable property: {key}"));
+            return Err(JsNativeError::typ()
+                .with_message(format!("cannot set non-writable property: {key}"))
+                .into());
         }
         // 6. Return success.
         Ok(success)
@@ -150,7 +153,9 @@ impl JsObject {
         let success = self.create_data_property(key.clone(), value, context)?;
         // 4. If success is false, throw a TypeError exception.
         if !success {
-            return context.throw_type_error(format!("cannot redefine property: {key}"));
+            return Err(JsNativeError::typ()
+                .with_message(format!("cannot redefine property: {key}"))
+                .into());
         }
         // 5. Return success.
         Ok(success)
@@ -217,7 +222,9 @@ impl JsObject {
         let success = self.__define_own_property__(key.clone(), desc.into(), context)?;
         // 4. If success is false, throw a TypeError exception.
         if !success {
-            return context.throw_type_error(format!("cannot redefine property: {key}"));
+            return Err(JsNativeError::typ()
+                .with_message(format!("cannot redefine property: {key}"))
+                .into());
         }
         // 5. Return success.
         Ok(success)
@@ -241,7 +248,9 @@ impl JsObject {
         let success = self.__delete__(&key, context)?;
         // 4. If success is false, throw a TypeError exception.
         if !success {
-            return context.throw_type_error(format!("cannot delete property: {key}"));
+            return Err(JsNativeError::typ()
+                .with_message(format!("cannot delete property: {key}"))
+                .into());
         }
         // 5. Return success.
         Ok(success)
@@ -303,7 +312,7 @@ impl JsObject {
         // 1. If argumentsList is not present, set argumentsList to a new empty List.
         // 2. If IsCallable(F) is false, throw a TypeError exception.
         if !self.is_callable() {
-            return context.throw_type_error("not a function");
+            return Err(JsNativeError::typ().with_message("not a function").into());
         }
         // 3. Return ? F.[[Call]](V, argumentsList).
         self.__call__(this, args, context)
@@ -457,7 +466,7 @@ impl JsObject {
     }
 
     #[inline]
-    pub(crate) fn length_of_array_like(&self, context: &mut Context) -> JsResult<usize> {
+    pub(crate) fn length_of_array_like(&self, context: &mut Context) -> JsResult<u64> {
         // 1. Assert: Type(obj) is Object.
         // 2. Return ℝ(? ToLength(? Get(obj, "length"))).
         self.get("length", context)?.to_length(context)
@@ -493,11 +502,9 @@ impl JsObject {
         }
 
         // 4. If Type(C) is not Object, throw a TypeError exception.
-        let c = if let Some(c) = c.as_object() {
-            c
-        } else {
-            return context.throw_type_error("property 'constructor' is not an object");
-        };
+        let c = c.as_object().ok_or_else(|| {
+            JsNativeError::typ().with_message("property 'constructor' is not an object")
+        })?;
 
         // 5. Let S be ? Get(C, @@species).
         let s = c.get(WellKnownSymbols::species(), context)?;
@@ -511,7 +518,9 @@ impl JsObject {
         // 8. Throw a TypeError exception.
         match s.as_object() {
             Some(obj) if obj.is_constructor() => Ok(obj.clone()),
-            _ => context.throw_type_error("property 'constructor' is not a constructor"),
+            _ => Err(JsNativeError::typ()
+                .with_message("property 'constructor' is not a constructor")
+                .into()),
         }
     }
 
@@ -600,9 +609,9 @@ impl JsObject {
             // 5. Return func.
             JsValue::Object(obj) if obj.is_callable() => Ok(Some(obj.clone())),
             // 4. If IsCallable(func) is false, throw a TypeError exception.
-            _ => {
-                context.throw_type_error("value returned for property of object is not a function")
-            }
+            _ => Err(JsNativeError::typ()
+                .with_message("value returned for property of object is not a function")
+                .into()),
         }
     }
 
@@ -614,7 +623,7 @@ impl JsObject {
     ///  - [ECMAScript reference][spec]
     ///
     /// [spec]: https://tc39.es/ecma262/#sec-isarray
-    pub(crate) fn is_array_abstract(&self, context: &mut Context) -> JsResult<bool> {
+    pub(crate) fn is_array_abstract(&self) -> JsResult<bool> {
         // Note: The spec specifies this function for JsValue.
         // It is implemented for JsObject for convenience.
 
@@ -628,10 +637,10 @@ impl JsObject {
         if let Some(proxy) = object.as_proxy() {
             // a. If argument.[[ProxyHandler]] is null, throw a TypeError exception.
             // b. Let target be argument.[[ProxyTarget]].
-            let (target, _) = proxy.try_data(context)?;
+            let (target, _) = proxy.try_data()?;
 
             // c. Return ? IsArray(target).
-            return target.is_array_abstract(context);
+            return target.is_array_abstract();
         }
 
         // 4. Return false.
@@ -727,15 +736,15 @@ impl JsValue {
         };
 
         // 2. If Type(obj) is not Object, throw a TypeError exception.
-        let obj = self
-            .as_object()
-            .ok_or_else(|| context.construct_type_error("cannot create list from a primitive"))?;
+        let obj = self.as_object().ok_or_else(|| {
+            JsNativeError::typ().with_message("cannot create list from a primitive")
+        })?;
 
         // 3. Let len be ? LengthOfArrayLike(obj).
         let len = obj.length_of_array_like(context)?;
 
         // 4. Let list be a new empty List.
-        let mut list = Vec::with_capacity(len);
+        let mut list = Vec::with_capacity(len as usize);
 
         // 5. Let index be 0.
         // 6. Repeat, while index < len,
@@ -745,7 +754,7 @@ impl JsValue {
             let next = obj.get(index, context)?;
             // c. If Type(next) is not an element of elementTypes, throw a TypeError exception.
             if !types.contains(&next.get_type()) {
-                return context.throw_type_error("bad type");
+                return Err(JsNativeError::typ().with_message("bad type").into());
             }
             // d. Append next as the last element of list.
             list.push(next.clone());
@@ -788,9 +797,7 @@ impl JsValue {
         context: &mut Context,
     ) -> JsResult<bool> {
         // 1. If IsCallable(C) is false, return false.
-        let function = if let Some(function) = function.as_callable() {
-            function
-        } else {
+        let Some(function) = function.as_callable() else {
             return Ok(false);
         };
 
@@ -805,9 +812,7 @@ impl JsValue {
             );
         }
 
-        let mut object = if let Some(obj) = object.as_object() {
-            obj.clone()
-        } else {
+        let Some(mut object) = object.as_object().cloned() else {
             // 3. If Type(O) is not Object, return false.
             return Ok(false);
         };
@@ -815,13 +820,11 @@ impl JsValue {
         // 4. Let P be ? Get(C, "prototype").
         let prototype = function.get("prototype", context)?;
 
-        let prototype = if let Some(obj) = prototype.as_object() {
-            obj
-        } else {
-            // 5. If Type(P) is not Object, throw a TypeError exception.
-            return context
-                .throw_type_error("function has non-object prototype in instanceof check");
-        };
+        // 5. If Type(P) is not Object, throw a TypeError exception.
+        let prototype = prototype.as_object().ok_or_else(|| {
+            JsNativeError::typ()
+                .with_message("function has non-object prototype in instanceof check")
+        })?;
 
         // 6. Repeat,
         loop {

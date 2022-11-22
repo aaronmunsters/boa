@@ -5,14 +5,16 @@ use super::JsArgs;
 use crate::{
     builtins::BuiltIn,
     context::intrinsics::StandardConstructors,
+    error::JsNativeError,
+    js_string,
     object::{
         internal_methods::get_prototype_from_constructor, ConstructorBuilder, JsObject, ObjectData,
     },
+    string::utf16,
     symbol::WellKnownSymbols,
     value::{JsValue, PreferredType},
-    Context, JsResult, JsString,
+    Context, JsResult,
 };
-use boa_gc::{unsafe_empty_trace, Finalize, Trace};
 use boa_profiler::Profiler;
 use chrono::{prelude::*, Duration, LocalResult};
 use std::fmt::Display;
@@ -48,8 +50,8 @@ fn ignore_ambiguity<T>(result: LocalResult<T>) -> Option<T> {
 
 macro_rules! getter_method {
     ($name:ident) => {{
-        fn get_value(this: &JsValue, _: &[JsValue], context: &mut Context) -> JsResult<JsValue> {
-            Ok(JsValue::new(this_time_value(this, context)?.$name()))
+        fn get_value(this: &JsValue, _: &[JsValue], _: &mut Context) -> JsResult<JsValue> {
+            Ok(JsValue::new(this_time_value(this)?.$name()))
         }
         get_value
     }};
@@ -61,7 +63,7 @@ macro_rules! getter_method {
     }};
 }
 
-#[derive(Debug, Finalize, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
+#[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct Date(Option<NaiveDateTime>);
 
 impl Display for Date {
@@ -71,12 +73,6 @@ impl Display for Date {
             _ => write!(f, "Invalid Date"),
         }
     }
-}
-
-unsafe impl Trace for Date {
-    // Date is a stack value, it doesn't require tracing.
-    // only safe if `chrono` never implements `Trace` for `NaiveDateTime`
-    unsafe_empty_trace!();
 }
 
 impl Default for Date {
@@ -302,12 +298,12 @@ impl Date {
             let duration_hour = Duration::milliseconds(hour.checked_mul(MILLIS_PER_HOUR)?);
             let duration_minute = Duration::milliseconds(minute.checked_mul(MILLIS_PER_MINUTE)?);
             let duration_second = Duration::milliseconds(second.checked_mul(MILLIS_PER_SECOND)?);
-            let duration_milisecond = Duration::milliseconds(millisecond);
+            let duration_millisecond = Duration::milliseconds(millisecond);
 
             let duration = duration_hour
                 .checked_add(&duration_minute)?
                 .checked_add(&duration_second)?
-                .checked_add(&duration_milisecond)?;
+                .checked_add(&duration_millisecond)?;
 
             NaiveDate::from_ymd_opt(year, month + 1, day + 1)
                 .and_then(|dt| dt.and_hms(0, 0, 0).checked_add_signed(duration))
@@ -397,13 +393,14 @@ impl Date {
         context: &mut Context,
     ) -> JsResult<JsObject> {
         let value = &args[0];
-        let tv = match this_time_value(value, context) {
+        let tv = match this_time_value(value) {
             Ok(dt) => dt.0,
             _ => match value.to_primitive(context, PreferredType::Default)? {
-                JsValue::String(ref str) => match chrono::DateTime::parse_from_rfc3339(str) {
-                    Ok(dt) => Some(dt.naive_utc()),
-                    _ => None,
-                },
+                JsValue::String(ref str) => str
+                    .to_std_string()
+                    .ok()
+                    .and_then(|s| chrono::DateTime::parse_from_rfc3339(s.as_str()).ok())
+                    .map(|dt| dt.naive_utc()),
                 tv => {
                     let tv = tv.to_number(context)?;
                     if tv.is_nan() {
@@ -511,25 +508,26 @@ impl Date {
     ) -> JsResult<JsValue> {
         // 1. Let O be the this value.
         // 2. If Type(O) is not Object, throw a TypeError exception.
-        let o = if let Some(o) = this.as_object() {
-            o
-        } else {
-            return context.throw_type_error("Date.prototype[@@toPrimitive] called on non object");
-        };
+        let o = this.as_object().ok_or_else(|| {
+            JsNativeError::typ().with_message("Date.prototype[@@toPrimitive] called on non object")
+        })?;
 
         let hint = args.get_or_undefined(0);
 
-        let try_first = match hint.as_string().map(JsString::as_str) {
+        let try_first = match hint.as_string() {
             // 3. If hint is "string" or "default", then
             // a. Let tryFirst be string.
-            Some("string" | "default") => PreferredType::String,
+            Some(string) if string == utf16!("string") || string == utf16!("default") => {
+                PreferredType::String
+            }
             // 4. Else if hint is "number", then
             // a. Let tryFirst be number.
-            Some("number") => PreferredType::Number,
+            Some(number) if number == utf16!("number") => PreferredType::Number,
             // 5. Else, throw a TypeError exception.
             _ => {
-                return context
-                    .throw_type_error("Date.prototype[@@toPrimitive] called with invalid hint")
+                return Err(JsNativeError::typ()
+                    .with_message("Date.prototype[@@toPrimitive] called with invalid hint")
+                    .into())
             }
         };
 
@@ -707,10 +705,10 @@ impl Date {
     pub fn get_timezone_offset(
         this: &JsValue,
         _: &[JsValue],
-        context: &mut Context,
+        _: &mut Context,
     ) -> JsResult<JsValue> {
         // 1. Let t be ? thisTimeValue(this value).
-        let t = this_time_value(this, context)?;
+        let t = this_time_value(this)?;
 
         // 2. If t is NaN, return NaN.
         if t.0.is_none() {
@@ -856,7 +854,7 @@ impl Date {
     /// [mdn]: https://developer.mozilla.org/en-US/docs/Web/JavaScript/Reference/Global_Objects/Date/setDate
     pub fn set_date(this: &JsValue, args: &[JsValue], context: &mut Context) -> JsResult<JsValue> {
         // 1. Let t be LocalTime(? thisTimeValue(this value)).
-        let mut t = this_time_value(this, context)?;
+        let mut t = this_time_value(this)?;
 
         // 2. Let dt be ? ToNumber(date).
         let dt = args
@@ -895,7 +893,7 @@ impl Date {
         context: &mut Context,
     ) -> JsResult<JsValue> {
         // 1. Let t be ? thisTimeValue(this value).
-        let mut t = this_time_value(this, context)?;
+        let mut t = this_time_value(this)?;
 
         // 2. If t is NaN, set t to +0𝔽; otherwise, set t to LocalTime(t).
         if t.0.is_none() {
@@ -906,25 +904,13 @@ impl Date {
         }
 
         // 3. Let y be ? ToNumber(year).
-        let y = args
-            .get(0)
-            .cloned()
-            .unwrap_or_default()
-            .to_number(context)?;
+        let y = args.get_or_undefined(0).to_number(context)?;
 
         // 4. If month is not present, let m be MonthFromTime(t); otherwise, let m be ? ToNumber(month).
-        let m = if let Some(m) = args.get(1) {
-            Some(m.to_number(context)?)
-        } else {
-            None
-        };
+        let m = args.get(1).map(|v| v.to_number(context)).transpose()?;
 
         // 5. If date is not present, let dt be DateFromTime(t); otherwise, let dt be ? ToNumber(date).
-        let dt = if let Some(dt) = args.get(2) {
-            Some(dt.to_number(context)?)
-        } else {
-            None
-        };
+        let dt = args.get(2).map(|v| v.to_number(context)).transpose()?;
 
         // 6. Let newDate be MakeDate(MakeDay(y, m, dt), TimeWithinDay(t)).
         t.set_components(false, Some(y), m, dt, None, None, None, None);
@@ -953,7 +939,7 @@ impl Date {
     /// [mdn]: https://developer.mozilla.org/en-US/docs/Web/JavaScript/Reference/Global_Objects/Date/setHours
     pub fn set_hours(this: &JsValue, args: &[JsValue], context: &mut Context) -> JsResult<JsValue> {
         // 1. Let t be LocalTime(? thisTimeValue(this value)).
-        let mut t = this_time_value(this, context)?;
+        let mut t = this_time_value(this)?;
 
         // 2. Let h be ? ToNumber(hour).
         let h = args
@@ -963,25 +949,13 @@ impl Date {
             .to_number(context)?;
 
         // 3. If min is not present, let m be MinFromTime(t); otherwise, let m be ? ToNumber(min).
-        let m = if let Some(m) = args.get(1) {
-            Some(m.to_number(context)?)
-        } else {
-            None
-        };
+        let m = args.get(1).map(|v| v.to_number(context)).transpose()?;
 
         // 4. If sec is not present, let s be SecFromTime(t); otherwise, let s be ? ToNumber(sec).
-        let sec = if let Some(sec) = args.get(2) {
-            Some(sec.to_number(context)?)
-        } else {
-            None
-        };
+        let sec = args.get(2).map(|v| v.to_number(context)).transpose()?;
 
         // 5. If ms is not present, let milli be msFromTime(t); otherwise, let milli be ? ToNumber(ms).
-        let milli = if let Some(milli) = args.get(3) {
-            Some(milli.to_number(context)?)
-        } else {
-            None
-        };
+        let milli = args.get(3).map(|v| v.to_number(context)).transpose()?;
 
         // 6. Let date be MakeDate(Day(t), MakeTime(h, m, s, milli)).
         t.set_components(false, None, None, None, Some(h), m, sec, milli);
@@ -1012,7 +986,7 @@ impl Date {
         context: &mut Context,
     ) -> JsResult<JsValue> {
         // 1. Let t be LocalTime(? thisTimeValue(this value)).
-        let mut t = this_time_value(this, context)?;
+        let mut t = this_time_value(this)?;
 
         // 2. Set ms to ? ToNumber(ms).
         let ms = args
@@ -1050,7 +1024,7 @@ impl Date {
         context: &mut Context,
     ) -> JsResult<JsValue> {
         // 1. Let t be LocalTime(? thisTimeValue(this value)).
-        let mut t = this_time_value(this, context)?;
+        let mut t = this_time_value(this)?;
 
         // 2. Let m be ? ToNumber(min).
         let m = args
@@ -1060,18 +1034,10 @@ impl Date {
             .to_number(context)?;
 
         // 3. If sec is not present, let s be SecFromTime(t); otherwise, let s be ? ToNumber(sec).
-        let s = if let Some(s) = args.get(1) {
-            Some(s.to_number(context)?)
-        } else {
-            None
-        };
+        let s = args.get(1).map(|v| v.to_number(context)).transpose()?;
 
         // 4. If ms is not present, let milli be msFromTime(t); otherwise, let milli be ? ToNumber(ms).
-        let milli = if let Some(milli) = args.get(2) {
-            Some(milli.to_number(context)?)
-        } else {
-            None
-        };
+        let milli = args.get(2).map(|v| v.to_number(context)).transpose()?;
 
         // 5. Let date be MakeDate(Day(t), MakeTime(HourFromTime(t), m, s, milli)).
         t.set_components(false, None, None, None, None, Some(m), s, milli);
@@ -1098,7 +1064,7 @@ impl Date {
     /// [mdn]: https://developer.mozilla.org/en-US/docs/Web/JavaScript/Reference/Global_Objects/Date/setMonth
     pub fn set_month(this: &JsValue, args: &[JsValue], context: &mut Context) -> JsResult<JsValue> {
         // 1. Let t be LocalTime(? thisTimeValue(this value)).
-        let mut t = this_time_value(this, context)?;
+        let mut t = this_time_value(this)?;
 
         // 2. Let m be ? ToNumber(month).
         let m = args
@@ -1108,11 +1074,7 @@ impl Date {
             .to_number(context)?;
 
         // 3. If date is not present, let dt be DateFromTime(t); otherwise, let dt be ? ToNumber(date).
-        let dt = if let Some(date) = args.get(1) {
-            Some(date.to_number(context)?)
-        } else {
-            None
-        };
+        let dt = args.get(1).map(|v| v.to_number(context)).transpose()?;
 
         // 4. Let newDate be MakeDate(MakeDay(YearFromTime(t), m, dt), TimeWithinDay(t)).
         t.set_components(false, None, Some(m), dt, None, None, None, None);
@@ -1143,7 +1105,7 @@ impl Date {
         context: &mut Context,
     ) -> JsResult<JsValue> {
         // 1. Let t be LocalTime(? thisTimeValue(this value)).
-        let mut t = this_time_value(this, context)?;
+        let mut t = this_time_value(this)?;
 
         // 2. Let s be ? ToNumber(sec).
         let s = args
@@ -1153,11 +1115,7 @@ impl Date {
             .to_number(context)?;
 
         // 3. If ms is not present, let milli be msFromTime(t); otherwise, let milli be ? ToNumber(ms).
-        let milli = if let Some(milli) = args.get(1) {
-            Some(milli.to_number(context)?)
-        } else {
-            None
-        };
+        let milli = args.get(1).map(|v| v.to_number(context)).transpose()?;
 
         // 4. Let date be MakeDate(Day(t), MakeTime(HourFromTime(t), MinFromTime(t), s, milli)).
         t.set_components(false, None, None, None, None, None, Some(s), milli);
@@ -1184,7 +1142,7 @@ impl Date {
     /// [mdn]: https://developer.mozilla.org/en-US/docs/Web/JavaScript/Reference/Global_Objects/Date/setYear
     pub fn set_year(this: &JsValue, args: &[JsValue], context: &mut Context) -> JsResult<JsValue> {
         // 1. Let t be ? thisTimeValue(this value).
-        let mut t = this_time_value(this, context)?;
+        let mut t = this_time_value(this)?;
 
         // 2. If t is NaN, set t to +0𝔽; otherwise, set t to LocalTime(t).
         if t.0.is_none() {
@@ -1241,7 +1199,7 @@ impl Date {
     /// [mdn]: https://developer.mozilla.org/en-US/docs/Web/JavaScript/Reference/Global_Objects/Date/setTime
     pub fn set_time(this: &JsValue, args: &[JsValue], context: &mut Context) -> JsResult<JsValue> {
         // 1. Perform ? thisTimeValue(this value).
-        this_time_value(this, context)?;
+        this_time_value(this)?;
 
         // 2. Let t be ? ToNumber(time).
         let t = if let Some(t) = args.get(0) {
@@ -1282,7 +1240,7 @@ impl Date {
         context: &mut Context,
     ) -> JsResult<JsValue> {
         // 1. Let t be ? thisTimeValue(this value).
-        let mut t = this_time_value(this, context)?;
+        let mut t = this_time_value(this)?;
 
         // 2. Let dt be ? ToNumber(date).
         let dt = args
@@ -1321,7 +1279,7 @@ impl Date {
         context: &mut Context,
     ) -> JsResult<JsValue> {
         // 1. Let t be ? thisTimeValue(this value).
-        let mut t = this_time_value(this, context)?;
+        let mut t = this_time_value(this)?;
 
         // 2. If t is NaN, set t to +0𝔽.
         if t.0.is_none() {
@@ -1339,18 +1297,10 @@ impl Date {
             .to_number(context)?;
 
         // 4. If month is not present, let m be MonthFromTime(t); otherwise, let m be ? ToNumber(month).
-        let m = if let Some(m) = args.get(1) {
-            Some(m.to_number(context)?)
-        } else {
-            None
-        };
+        let m = args.get(1).map(|v| v.to_number(context)).transpose()?;
 
         // 5. If date is not present, let dt be DateFromTime(t); otherwise, let dt be ? ToNumber(date).
-        let dt = if let Some(dt) = args.get(2) {
-            Some(dt.to_number(context)?)
-        } else {
-            None
-        };
+        let dt = args.get(2).map(|v| v.to_number(context)).transpose()?;
 
         // 6. Let newDate be MakeDate(MakeDay(y, m, dt), TimeWithinDay(t)).
         t.set_components(true, Some(y), m, dt, None, None, None, None);
@@ -1383,7 +1333,7 @@ impl Date {
         context: &mut Context,
     ) -> JsResult<JsValue> {
         // 1. Let t be ? thisTimeValue(this value).
-        let mut t = this_time_value(this, context)?;
+        let mut t = this_time_value(this)?;
 
         // 2. Let h be ? ToNumber(hour).
         let h = args
@@ -1393,25 +1343,13 @@ impl Date {
             .to_number(context)?;
 
         // 3. If min is not present, let m be MinFromTime(t); otherwise, let m be ? ToNumber(min).
-        let m = if let Some(m) = args.get(1) {
-            Some(m.to_number(context)?)
-        } else {
-            None
-        };
+        let m = args.get(1).map(|v| v.to_number(context)).transpose()?;
 
         // 4. If sec is not present, let s be SecFromTime(t); otherwise, let s be ? ToNumber(sec).
-        let sec = if let Some(s) = args.get(2) {
-            Some(s.to_number(context)?)
-        } else {
-            None
-        };
+        let sec = args.get(2).map(|v| v.to_number(context)).transpose()?;
 
         // 5. If ms is not present, let milli be msFromTime(t); otherwise, let milli be ? ToNumber(ms).
-        let ms = if let Some(ms) = args.get(3) {
-            Some(ms.to_number(context)?)
-        } else {
-            None
-        };
+        let ms = args.get(3).map(|v| v.to_number(context)).transpose()?;
 
         // 6. Let newDate be MakeDate(Day(t), MakeTime(h, m, s, milli)).
         t.set_components(true, None, None, None, Some(h), m, sec, ms);
@@ -1442,7 +1380,7 @@ impl Date {
         context: &mut Context,
     ) -> JsResult<JsValue> {
         // 1. Let t be ? thisTimeValue(this value).
-        let mut t = this_time_value(this, context)?;
+        let mut t = this_time_value(this)?;
 
         // 2. Let milli be ? ToNumber(ms).
         let ms = args
@@ -1480,7 +1418,7 @@ impl Date {
         context: &mut Context,
     ) -> JsResult<JsValue> {
         // 1. Let t be ? thisTimeValue(this value).
-        let mut t = this_time_value(this, context)?;
+        let mut t = this_time_value(this)?;
 
         // 2. Let m be ? ToNumber(min).
         let m = args
@@ -1491,21 +1429,13 @@ impl Date {
 
         // 3. If sec is not present, let s be SecFromTime(t).
         // 4. Else,
-        let s = if let Some(s) = args.get(1) {
-            // a. Let s be ? ToNumber(sec).
-            Some(s.to_number(context)?)
-        } else {
-            None
-        };
+        // a. Let s be ? ToNumber(sec).
+        let s = args.get(1).map(|v| v.to_number(context)).transpose()?;
 
         // 5. If ms is not present, let milli be msFromTime(t).
         // 6. Else,
-        let milli = if let Some(ms) = args.get(2) {
-            // a. Let milli be ? ToNumber(ms).
-            Some(ms.to_number(context)?)
-        } else {
-            None
-        };
+        // a. Let milli be ? ToNumber(ms).
+        let milli = args.get(2).map(|v| v.to_number(context)).transpose()?;
 
         // 7. Let date be MakeDate(Day(t), MakeTime(HourFromTime(t), m, s, milli)).
         t.set_components(true, None, None, None, None, Some(m), s, milli);
@@ -1536,7 +1466,7 @@ impl Date {
         context: &mut Context,
     ) -> JsResult<JsValue> {
         // 1. Let t be ? thisTimeValue(this value).
-        let mut t = this_time_value(this, context)?;
+        let mut t = this_time_value(this)?;
 
         // 2. Let m be ? ToNumber(month).
         let m = args
@@ -1547,12 +1477,8 @@ impl Date {
 
         // 3. If date is not present, let dt be DateFromTime(t).
         // 4. Else,
-        let dt = if let Some(dt) = args.get(1) {
-            // a. Let dt be ? ToNumber(date).
-            Some(dt.to_number(context)?)
-        } else {
-            None
-        };
+        // a. Let dt be ? ToNumber(date).
+        let dt = args.get(1).map(|v| v.to_number(context)).transpose()?;
 
         // 5. Let newDate be MakeDate(MakeDay(YearFromTime(t), m, dt), TimeWithinDay(t)).
         t.set_components(true, None, Some(m), dt, None, None, None, None);
@@ -1583,7 +1509,7 @@ impl Date {
         context: &mut Context,
     ) -> JsResult<JsValue> {
         // 1. Let t be ? thisTimeValue(this value).
-        let mut t = this_time_value(this, context)?;
+        let mut t = this_time_value(this)?;
 
         // 2. Let s be ? ToNumber(sec).
         let s = args
@@ -1594,12 +1520,8 @@ impl Date {
 
         // 3. If ms is not present, let milli be msFromTime(t).
         // 4. Else,
-        let milli = if let Some(milli) = args.get(1) {
-            // a. Let milli be ? ToNumber(ms).
-            Some(milli.to_number(context)?)
-        } else {
-            None
-        };
+        // a. Let milli be ? ToNumber(ms).
+        let milli = args.get(1).map(|v| v.to_number(context)).transpose()?;
 
         // 5. Let date be MakeDate(Day(t), MakeTime(HourFromTime(t), MinFromTime(t), s, milli)).
         t.set_components(true, None, None, None, None, None, Some(s), milli);
@@ -1625,14 +1547,10 @@ impl Date {
     /// [spec]: https://tc39.es/ecma262/#sec-date.prototype.todatestring
     /// [mdn]: https://developer.mozilla.org/en-US/docs/Web/JavaScript/Reference/Global_Objects/Date/toDateString
     #[allow(clippy::wrong_self_convention)]
-    pub fn to_date_string(
-        this: &JsValue,
-        _: &[JsValue],
-        context: &mut Context,
-    ) -> JsResult<JsValue> {
+    pub fn to_date_string(this: &JsValue, _: &[JsValue], _: &mut Context) -> JsResult<JsValue> {
         // 1. Let O be this Date object.
         // 2. Let tv be ? thisTimeValue(O).
-        let tv = this_time_value(this, context)?;
+        let tv = this_time_value(this)?;
 
         // 3. If tv is NaN, return "Invalid Date".
         // 4. Let t be LocalTime(tv).
@@ -1645,7 +1563,7 @@ impl Date {
                 .to_string()
                 .into())
         } else {
-            Ok(JsString::from("Invalid Date").into())
+            Ok(js_string!("Invalid Date").into())
         }
     }
 
@@ -1676,12 +1594,8 @@ impl Date {
     /// [spec]: https://tc39.es/ecma262/#sec-date.prototype.toisostring
     /// [mdn]: https://developer.mozilla.org/en-US/docs/Web/JavaScript/Reference/Global_Objects/Date/toISOString
     #[allow(clippy::wrong_self_convention)]
-    pub fn to_iso_string(
-        this: &JsValue,
-        _: &[JsValue],
-        context: &mut Context,
-    ) -> JsResult<JsValue> {
-        if let Some(t) = this_time_value(this, context)?.0 {
+    pub fn to_iso_string(this: &JsValue, _: &[JsValue], _: &mut Context) -> JsResult<JsValue> {
+        if let Some(t) = this_time_value(this)?.0 {
             Ok(Utc::now()
                 .timezone()
                 .from_utc_datetime(&t)
@@ -1689,7 +1603,9 @@ impl Date {
                 .to_string()
                 .into())
         } else {
-            context.throw_range_error("Invalid time value")
+            Err(JsNativeError::range()
+                .with_message("Invalid time value")
+                .into())
         }
     }
 
@@ -1734,9 +1650,9 @@ impl Date {
     /// [spec]: https://tc39.es/ecma262/#sec-date.prototype.tostring
     /// [mdn]: https://developer.mozilla.org/en-US/docs/Web/JavaScript/Reference/Global_Objects/Date/toString
     #[allow(clippy::wrong_self_convention)]
-    pub fn to_string(this: &JsValue, _: &[JsValue], context: &mut Context) -> JsResult<JsValue> {
+    pub fn to_string(this: &JsValue, _: &[JsValue], _: &mut Context) -> JsResult<JsValue> {
         // 1. Let tv be ? thisTimeValue(this value).
-        let tv = this_time_value(this, context)?;
+        let tv = this_time_value(this)?;
 
         // 2. Return ToDateString(tv).
         if let Some(t) = tv.0 {
@@ -1747,7 +1663,7 @@ impl Date {
                 .to_string()
                 .into())
         } else {
-            Ok(JsString::from("Invalid Date").into())
+            Ok(js_string!("Invalid Date").into())
         }
     }
 
@@ -1763,14 +1679,10 @@ impl Date {
     /// [spec]: https://tc39.es/ecma262/#sec-date.prototype.totimestring
     /// [mdn]: https://developer.mozilla.org/en-US/docs/Web/JavaScript/Reference/Global_Objects/Date/toTimeString
     #[allow(clippy::wrong_self_convention)]
-    pub fn to_time_string(
-        this: &JsValue,
-        _: &[JsValue],
-        context: &mut Context,
-    ) -> JsResult<JsValue> {
+    pub fn to_time_string(this: &JsValue, _: &[JsValue], _: &mut Context) -> JsResult<JsValue> {
         // 1. Let O be this Date object.
         // 2. Let tv be ? thisTimeValue(O).
-        let tv = this_time_value(this, context)?;
+        let tv = this_time_value(this)?;
 
         // 3. If tv is NaN, return "Invalid Date".
         // 4. Let t be LocalTime(tv).
@@ -1783,7 +1695,7 @@ impl Date {
                 .to_string()
                 .into())
         } else {
-            Ok(JsString::from("Invalid Date").into())
+            Ok(js_string!("Invalid Date").into())
         }
     }
 
@@ -1849,14 +1761,18 @@ impl Date {
         // This method is implementation-defined and discouraged, so we just require the same format as the string
         // constructor.
 
-        if args.is_empty() {
+        let Some(date) = args.get(0) else {
             return Ok(JsValue::nan());
-        }
+        };
 
-        match DateTime::parse_from_rfc3339(&args[0].to_string(context)?) {
-            Ok(v) => Ok(JsValue::new(v.naive_utc().timestamp_millis() as f64)),
-            _ => Ok(JsValue::new(f64::NAN)),
-        }
+        let date = date.to_string(context)?;
+
+        Ok(JsValue::new(
+            date.to_std_string()
+                .ok()
+                .and_then(|s| DateTime::parse_from_rfc3339(s.as_str()).ok())
+                .map_or(f64::NAN, |v| v.naive_utc().timestamp_millis() as f64),
+        ))
     }
 
     /// `Date.UTC()`
@@ -1930,9 +1846,13 @@ impl Date {
 ///
 /// [spec]: https://tc39.es/ecma262/#sec-thistimevalue
 #[inline]
-pub fn this_time_value(value: &JsValue, context: &mut Context) -> JsResult<Date> {
+pub fn this_time_value(value: &JsValue) -> JsResult<Date> {
     value
         .as_object()
         .and_then(|obj| obj.borrow().as_date().copied())
-        .ok_or_else(|| context.construct_type_error("'this' is not a Date"))
+        .ok_or_else(|| {
+            JsNativeError::typ()
+                .with_message("'this' is not a Date")
+                .into()
+        })
 }

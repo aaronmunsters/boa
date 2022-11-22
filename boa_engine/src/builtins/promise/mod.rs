@@ -8,8 +8,9 @@ mod promise_job;
 use self::promise_job::PromiseJob;
 use super::{iterable::IteratorRecord, JsArgs};
 use crate::{
-    builtins::{Array, BuiltIn},
+    builtins::{error::ErrorKind, Array, BuiltIn},
     context::intrinsics::StandardConstructors,
+    error::JsNativeError,
     job::JobCallback,
     object::{
         internal_methods::get_prototype_from_constructor, ConstructorBuilder, FunctionBuilder,
@@ -18,7 +19,7 @@ use crate::{
     property::{Attribute, PropertyDescriptorBuilder},
     symbol::WellKnownSymbols,
     value::JsValue,
-    Context, JsResult,
+    Context, JsError, JsResult,
 };
 use boa_gc::{Cell as GcCell, Finalize, Gc, Trace};
 use boa_profiler::Profiler;
@@ -37,16 +38,17 @@ macro_rules! if_abrupt_reject_promise {
     ($value:ident, $capability:expr, $context: expr) => {
         let $value = match $value {
             // 1. If value is an abrupt completion, then
-            Err(value) => {
+            Err(err) => {
+                let err = err.to_opaque($context);
                 // a. Perform ? Call(capability.[[Reject]], undefined, « value.[[Value]] »).
                 $context.call(
-                    &$capability.reject.clone().into(),
+                    &$capability.reject().clone().into(),
                     &JsValue::undefined(),
-                    &[value],
+                    &[err],
                 )?;
 
                 // b. Return capability.[[Promise]].
-                return Ok($capability.promise.clone().into());
+                return Ok($capability.promise().clone().into());
             }
             // 2. Else if value is a Completion Record, set value to value.[[Value]].
             Ok(value) => value,
@@ -54,17 +56,17 @@ macro_rules! if_abrupt_reject_promise {
     };
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-enum PromiseState {
+pub(crate) use if_abrupt_reject_promise;
+
+#[derive(Debug, Clone, Trace, Finalize)]
+pub(crate) enum PromiseState {
     Pending,
-    Fulfilled,
-    Rejected,
+    Fulfilled(JsValue),
+    Rejected(JsValue),
 }
 
 #[derive(Debug, Clone, Trace, Finalize)]
 pub struct Promise {
-    promise_result: Option<JsValue>,
-    #[unsafe_ignore_trace]
     promise_state: PromiseState,
     promise_fulfill_reactions: Vec<ReactionRecord>,
     promise_reject_reactions: Vec<ReactionRecord>,
@@ -86,7 +88,7 @@ enum ReactionType {
 }
 
 #[derive(Debug, Clone, Trace, Finalize)]
-struct PromiseCapability {
+pub struct PromiseCapability {
     promise: JsObject,
     resolve: JsFunction,
     reject: JsFunction,
@@ -99,7 +101,7 @@ impl PromiseCapability {
     ///  - [ECMAScript reference][spec]
     ///
     /// [spec]: https://tc39.es/ecma262/#sec-newpromisecapability
-    fn new(c: &JsValue, context: &mut Context) -> JsResult<Self> {
+    pub(crate) fn new(c: &JsValue, context: &mut Context) -> JsResult<Self> {
         #[derive(Debug, Clone, Trace, Finalize)]
         struct RejectResolve {
             reject: JsValue,
@@ -108,7 +110,9 @@ impl PromiseCapability {
 
         match c.as_constructor() {
             // 1. If IsConstructor(C) is false, throw a TypeError exception.
-            None => context.throw_type_error("PromiseCapability: expected constructor"),
+            None => Err(JsNativeError::typ()
+                .with_message("PromiseCapability: expected constructor")
+                .into()),
             Some(c) => {
                 let c = c.clone();
 
@@ -123,19 +127,20 @@ impl PromiseCapability {
                 // 5. Let executor be CreateBuiltinFunction(executorClosure, 2, "", « »).
                 let executor = FunctionBuilder::closure_with_captures(
                     context,
-                    |_this, args: &[JsValue], captures, context| {
+                    |_this, args: &[JsValue], captures, _| {
                         let mut promise_capability = captures.borrow_mut();
                         // a. If promiseCapability.[[Resolve]] is not undefined, throw a TypeError exception.
                         if !promise_capability.resolve.is_undefined() {
-                            return context.throw_type_error(
-                                "promiseCapability.[[Resolve]] is not undefined",
-                            );
+                            return Err(JsNativeError::typ()
+                                .with_message("promiseCapability.[[Resolve]] is not undefined")
+                                .into());
                         }
 
                         // b. If promiseCapability.[[Reject]] is not undefined, throw a TypeError exception.
                         if !promise_capability.reject.is_undefined() {
-                            return context
-                                .throw_type_error("promiseCapability.[[Reject]] is not undefined");
+                            return Err(JsNativeError::typ()
+                                .with_message("promiseCapability.[[Reject]] is not undefined")
+                                .into());
                         }
 
                         let resolve = args.get_or_undefined(0);
@@ -171,8 +176,8 @@ impl PromiseCapability {
                     .cloned()
                     .and_then(JsFunction::from_object)
                     .ok_or_else(|| {
-                        context
-                            .construct_type_error("promiseCapability.[[Resolve]] is not callable")
+                        JsNativeError::typ()
+                            .with_message("promiseCapability.[[Resolve]] is not callable")
                     })?;
 
                 // 8. If IsCallable(promiseCapability.[[Reject]]) is false, throw a TypeError exception.
@@ -181,7 +186,8 @@ impl PromiseCapability {
                     .cloned()
                     .and_then(JsFunction::from_object)
                     .ok_or_else(|| {
-                        context.construct_type_error("promiseCapability.[[Reject]] is not callable")
+                        JsNativeError::typ()
+                            .with_message("promiseCapability.[[Reject]] is not callable")
                     })?;
 
                 // 9. Set promiseCapability.[[Promise]] to promise.
@@ -193,6 +199,21 @@ impl PromiseCapability {
                 })
             }
         }
+    }
+
+    /// Returns the promise object.
+    pub(crate) fn promise(&self) -> &JsObject {
+        &self.promise
+    }
+
+    /// Returns the resolve function.
+    pub(crate) fn resolve(&self) -> &JsFunction {
+        &self.resolve
+    }
+
+    /// Returns the reject function.
+    pub(crate) fn reject(&self) -> &JsFunction {
+        &self.reject
     }
 }
 
@@ -254,6 +275,11 @@ struct ResolvingFunctionsRecord {
 impl Promise {
     const LENGTH: usize = 1;
 
+    /// Gets the current state of the promise.
+    pub(crate) fn state(&self) -> &PromiseState {
+        &self.promise_state
+    }
+
     /// `Promise ( executor )`
     ///
     /// More information:
@@ -267,14 +293,18 @@ impl Promise {
     ) -> JsResult<JsValue> {
         // 1. If NewTarget is undefined, throw a TypeError exception.
         if new_target.is_undefined() {
-            return context.throw_type_error("Promise NewTarget cannot be undefined");
+            return Err(JsNativeError::typ()
+                .with_message("Promise NewTarget cannot be undefined")
+                .into());
         }
 
         let executor = args.get_or_undefined(0);
 
         // 2. If IsCallable(executor) is false, throw a TypeError exception.
         if !executor.is_callable() {
-            return context.throw_type_error("Promise executor is not callable");
+            return Err(JsNativeError::typ()
+                .with_message("Promise executor is not callable")
+                .into());
         }
 
         // 3. Let promise be ? OrdinaryCreateFromConstructor(NewTarget, "%Promise.prototype%", « [[PromiseState]], [[PromiseResult]], [[PromiseFulfillReactions]], [[PromiseRejectReactions]], [[PromiseIsHandled]] »).
@@ -284,7 +314,6 @@ impl Promise {
         let promise = JsObject::from_proto_and_data(
             promise,
             ObjectData::promise(Self {
-                promise_result: None,
                 // 4. Set promise.[[PromiseState]] to pending.
                 promise_state: PromiseState::Pending,
                 // 5. Set promise.[[PromiseFulfillReactions]] to a new empty List.
@@ -310,9 +339,10 @@ impl Promise {
         );
 
         // 10. If completion is an abrupt completion, then
-        if let Err(value) = completion {
+        if let Err(e) = completion {
+            let e = e.to_opaque(context);
             // a. Perform ? Call(resolvingFunctions.[[Reject]], undefined, « completion.[[Value]] »).
-            context.call(&resolving_functions.reject, &JsValue::Undefined, &[value])?;
+            context.call(&resolving_functions.reject, &JsValue::Undefined, &[e])?;
         }
 
         // 11. Return promise.
@@ -1016,7 +1046,7 @@ impl Promise {
                                 .constructors()
                                 .aggregate_error()
                                 .prototype(),
-                            ObjectData::error(),
+                            ObjectData::error(ErrorKind::Aggregate),
                         );
 
                         // 2. Perform ! DefinePropertyOrThrow(error, "errors", PropertyDescriptor { [[Configurable]]: true, [[Enumerable]]: false, [[Writable]]: true, [[Value]]: CreateArrayFromList(errors) }).
@@ -1036,7 +1066,7 @@ impl Promise {
                             .expect("cannot fail per spec");
 
                         // 3. Return ThrowCompletion(error).
-                        return Err(error.into());
+                        return Err(JsError::from_opaque(error.into()));
                     }
 
                     // iv. Return resultCapability.[[Promise]].
@@ -1111,7 +1141,7 @@ impl Promise {
                                 .constructors()
                                 .aggregate_error()
                                 .prototype(),
-                            ObjectData::error(),
+                            ObjectData::error(ErrorKind::Aggregate),
                         );
 
                         // b. Perform ! DefinePropertyOrThrow(error, "errors", PropertyDescriptor { [[Configurable]]: true, [[Enumerable]]: false, [[Writable]]: true, [[Value]]: CreateArrayFromList(errors) }).
@@ -1129,7 +1159,6 @@ impl Promise {
                                 context,
                             )
                             .expect("cannot fail per spec");
-
                         // c. Return ? Call(promiseCapability.[[Reject]], undefined, « error »).
                         return captures.capability_reject.call(
                             &JsValue::undefined(),
@@ -1226,45 +1255,44 @@ impl Promise {
                 // 7. If SameValue(resolution, promise) is true, then
                 if JsValue::same_value(resolution, &promise.clone().into()) {
                     //   a. Let selfResolutionError be a newly created TypeError object.
-                    let self_resolution_error =
-                        context.construct_type_error("SameValue(resolution, promise) is true");
+                    let self_resolution_error = JsNativeError::typ()
+                        .with_message("SameValue(resolution, promise) is true")
+                        .to_opaque(context);
 
                     //   b. Perform RejectPromise(promise, selfResolutionError).
                     promise
                         .borrow_mut()
                         .as_promise_mut()
                         .expect("Expected promise to be a Promise")
-                        .reject_promise(&self_resolution_error, context);
+                        .reject_promise(&self_resolution_error.into(), context);
 
                     //   c. Return undefined.
                     return Ok(JsValue::Undefined);
                 }
 
-                let then = if let Some(resolution) = resolution.as_object() {
-                    // 9. Let then be Completion(Get(resolution, "then")).
-                    resolution.get("then", context)
-                } else {
+                let Some(then) = resolution.as_object() else {
                     // 8. If Type(resolution) is not Object, then
                     //   a. Perform FulfillPromise(promise, resolution).
                     promise
-                        .borrow_mut()
-                        .as_promise_mut()
-                        .expect("Expected promise to be a Promise")
-                        .fulfill_promise(resolution, context)?;
+                    .borrow_mut()
+                    .as_promise_mut()
+                    .expect("Expected promise to be a Promise")
+                    .fulfill_promise(resolution, context)?;
 
                     //   b. Return undefined.
                     return Ok(JsValue::Undefined);
                 };
 
-                let then_action = match then {
+                // 9. Let then be Completion(Get(resolution, "then")).
+                let then_action = match then.get("then", context) {
                     // 10. If then is an abrupt completion, then
-                    Err(value) => {
+                    Err(e) => {
                         //   a. Perform RejectPromise(promise, then.[[Value]]).
                         promise
                             .borrow_mut()
                             .as_promise_mut()
                             .expect("Expected promise to be a Promise")
-                            .reject_promise(&value, context);
+                            .reject_promise(&e.to_opaque(context), context);
 
                         //   b. Return undefined.
                         return Ok(JsValue::Undefined);
@@ -1380,9 +1408,8 @@ impl Promise {
     /// [spec]: https://tc39.es/ecma262/#sec-fulfillpromise
     pub fn fulfill_promise(&mut self, value: &JsValue, context: &mut Context) -> JsResult<()> {
         // 1. Assert: The value of promise.[[PromiseState]] is pending.
-        assert_eq!(
-            self.promise_state,
-            PromiseState::Pending,
+        assert!(
+            matches!(self.promise_state, PromiseState::Pending),
             "promise was not pending"
         );
 
@@ -1393,17 +1420,15 @@ impl Promise {
         Self::trigger_promise_reactions(reactions, value, context);
         // reordering this statement does not affect the semantics
 
-        // 3. Set promise.[[PromiseResult]] to value.
-        self.promise_result = Some(value.clone());
-
         // 4. Set promise.[[PromiseFulfillReactions]] to undefined.
         self.promise_fulfill_reactions = Vec::new();
 
         // 5. Set promise.[[PromiseRejectReactions]] to undefined.
         self.promise_reject_reactions = Vec::new();
 
+        // 3. Set promise.[[PromiseResult]] to value.
         // 6. Set promise.[[PromiseState]] to fulfilled.
-        self.promise_state = PromiseState::Fulfilled;
+        self.promise_state = PromiseState::Fulfilled(value.clone());
 
         // 8. Return unused.
         Ok(())
@@ -1420,9 +1445,8 @@ impl Promise {
     /// [spec]: https://tc39.es/ecma262/#sec-rejectpromise
     pub fn reject_promise(&mut self, reason: &JsValue, context: &mut Context) {
         // 1. Assert: The value of promise.[[PromiseState]] is pending.
-        assert_eq!(
-            self.promise_state,
-            PromiseState::Pending,
+        assert!(
+            matches!(self.promise_state, PromiseState::Pending),
             "Expected promise.[[PromiseState]] to be pending"
         );
 
@@ -1433,17 +1457,15 @@ impl Promise {
         Self::trigger_promise_reactions(reactions, reason, context);
         // reordering this statement does not affect the semantics
 
-        // 3. Set promise.[[PromiseResult]] to reason.
-        self.promise_result = Some(reason.clone());
-
         // 4. Set promise.[[PromiseFulfillReactions]] to undefined.
         self.promise_fulfill_reactions = Vec::new();
 
         // 5. Set promise.[[PromiseRejectReactions]] to undefined.
         self.promise_reject_reactions = Vec::new();
 
+        // 3. Set promise.[[PromiseResult]] to reason.
         // 6. Set promise.[[PromiseState]] to rejected.
-        self.promise_state = PromiseState::Rejected;
+        self.promise_state = PromiseState::Rejected(reason.clone());
 
         // 7. If promise.[[PromiseIsHandled]] is false, perform HostPromiseRejectionTracker(promise, "reject").
         if !self.promise_is_handled {
@@ -1657,7 +1679,9 @@ impl Promise {
             Self::promise_resolve(c.clone(), x.clone(), context)
         } else {
             // 2. If Type(C) is not Object, throw a TypeError exception.
-            context.throw_type_error("Promise.resolve() called on a non-object")
+            Err(JsNativeError::typ()
+                .with_message("Promise.resolve() called on a non-object")
+                .into())
         }
     }
 
@@ -1711,10 +1735,10 @@ impl Promise {
         let promise = this;
 
         // 2. If Type(promise) is not Object, throw a TypeError exception.
-        let promise_obj = if let Some(p) = promise.as_object() {
-            p
-        } else {
-            return context.throw_type_error("finally called with a non-object promise");
+        let Some(promise_obj) = promise.as_object() else {
+            return Err(JsNativeError::typ()
+                .with_message("finally called with a non-object promise")
+                .into());
         };
 
         // 3. Let C be ? SpeciesConstructor(promise, %Promise%).
@@ -1802,7 +1826,7 @@ impl Promise {
                         context,
                         |_this, _args, captures, _context| {
                             // 1. Return ThrowCompletion(reason).
-                            Err(captures.reason.clone())
+                            Err(JsError::from_opaque(captures.reason.clone()))
                         },
                         ThrowReasonCaptures {
                             reason: reason.clone(),
@@ -1851,7 +1875,11 @@ impl Promise {
         // 2. If IsPromise(promise) is false, throw a TypeError exception.
         let promise_obj = match promise.as_promise() {
             Some(obj) => obj,
-            None => return context.throw_type_error("IsPromise(promise) is false"),
+            None => {
+                return Err(JsNativeError::typ()
+                    .with_message("IsPromise(promise) is false")
+                    .into())
+            }
         };
 
         // 3. Let C be ? SpeciesConstructor(promise, %Promise%).
@@ -1878,7 +1906,7 @@ impl Promise {
     ///  - [ECMAScript reference][spec]
     ///
     /// [spec]: https://tc39.es/ecma262/#sec-performpromisethen
-    fn perform_promise_then(
+    pub(crate) fn perform_promise_then(
         &mut self,
         on_fulfilled: &JsValue,
         on_rejected: &JsValue,
@@ -1937,16 +1965,11 @@ impl Promise {
             }
 
             // 10. Else if promise.[[PromiseState]] is fulfilled, then
-            PromiseState::Fulfilled => {
-                //   a. Let value be promise.[[PromiseResult]].
-                let value = self
-                    .promise_result
-                    .clone()
-                    .expect("promise.[[PromiseResult]] cannot be empty");
-
+            //   a. Let value be promise.[[PromiseResult]].
+            PromiseState::Fulfilled(ref value) => {
                 //   b. Let fulfillJob be NewPromiseReactionJob(fulfillReaction, value).
                 let fulfill_job =
-                    PromiseJob::new_promise_reaction_job(fulfill_reaction, value, context);
+                    PromiseJob::new_promise_reaction_job(fulfill_reaction, value.clone(), context);
 
                 //   c. Perform HostEnqueuePromiseJob(fulfillJob.[[Job]], fulfillJob.[[Realm]]).
                 context.host_enqueue_promise_job(fulfill_job);
@@ -1954,13 +1977,8 @@ impl Promise {
 
             // 11. Else,
             //   a. Assert: The value of promise.[[PromiseState]] is rejected.
-            PromiseState::Rejected => {
-                //   b. Let reason be promise.[[PromiseResult]].
-                let reason = self
-                    .promise_result
-                    .clone()
-                    .expect("promise.[[PromiseResult]] cannot be empty");
-
+            //   b. Let reason be promise.[[PromiseResult]].
+            PromiseState::Rejected(ref reason) => {
                 //   c. If promise.[[PromiseIsHandled]] is false, perform HostPromiseRejectionTracker(promise, "handle").
                 if !self.promise_is_handled {
                     // HostPromiseRejectionTracker(promise, "handle")
@@ -1969,7 +1987,7 @@ impl Promise {
 
                 //   d. Let rejectJob be NewPromiseReactionJob(rejectReaction, reason).
                 let reject_job =
-                    PromiseJob::new_promise_reaction_job(reject_reaction, reason, context);
+                    PromiseJob::new_promise_reaction_job(reject_reaction, reason.clone(), context);
 
                 //   e. Perform HostEnqueuePromiseJob(rejectJob.[[Job]], rejectJob.[[Realm]]).
                 context.host_enqueue_promise_job(reject_job);
@@ -2000,7 +2018,11 @@ impl Promise {
     ///  - [ECMAScript reference][spec]
     ///
     /// [spec]: https://tc39.es/ecma262/#sec-promise-resolve
-    fn promise_resolve(c: JsObject, x: JsValue, context: &mut Context) -> JsResult<JsValue> {
+    pub(crate) fn promise_resolve(
+        c: JsObject,
+        x: JsValue,
+        context: &mut Context,
+    ) -> JsResult<JsValue> {
         // 1. If IsPromise(x) is true, then
         if let Some(x) = x.as_promise() {
             // a. Let xConstructor be ? Get(x, "constructor").
@@ -2047,7 +2069,9 @@ impl Promise {
             // 3. Return promiseResolve.
             Ok(promise_resolve.clone())
         } else {
-            context.throw_type_error("retrieving a non-callable promise resolver")
+            Err(JsNativeError::typ()
+                .with_message("retrieving a non-callable promise resolver")
+                .into())
         }
     }
 }

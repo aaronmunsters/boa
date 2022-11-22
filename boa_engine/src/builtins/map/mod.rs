@@ -10,13 +10,12 @@
 //! [spec]: https://tc39.es/ecma262/#sec-map-objects
 //! [mdn]: https://developer.mozilla.org/en-US/docs/Web/JavaScript/Reference/Global_Objects/Map
 
-#![allow(clippy::mutable_key_type)]
-
 use self::{map_iterator::MapIterator, ordered_map::OrderedMap};
 use super::JsArgs;
 use crate::{
     builtins::BuiltIn,
     context::intrinsics::StandardConstructors,
+    error::JsNativeError,
     object::{
         internal_methods::get_prototype_from_constructor, ConstructorBuilder, FunctionBuilder,
         JsObject, ObjectData,
@@ -123,8 +122,9 @@ impl Map {
     ) -> JsResult<JsValue> {
         // 1. If NewTarget is undefined, throw a TypeError exception.
         if new_target.is_undefined() {
-            return context
-                .throw_type_error("calling a builtin Map constructor without new is forbidden");
+            return Err(JsNativeError::typ()
+                .with_message("calling a builtin Map constructor without new is forbidden")
+                .into());
         }
 
         // 2. Let map be ? OrdinaryCreateFromConstructor(NewTarget, "%Map.prototype%", « [[MapData]] »).
@@ -208,11 +208,7 @@ impl Map {
     ///
     /// [spec]: https://tc39.es/ecma262/#sec-map.prototype.set
     /// [mdn]: https://developer.mozilla.org/en-US/docs/Web/JavaScript/Reference/Global_Objects/Map/set
-    pub(crate) fn set(
-        this: &JsValue,
-        args: &[JsValue],
-        context: &mut Context,
-    ) -> JsResult<JsValue> {
+    pub(crate) fn set(this: &JsValue, args: &[JsValue], _: &mut Context) -> JsResult<JsValue> {
         let key = args.get_or_undefined(0);
         let value = args.get_or_undefined(1);
 
@@ -243,7 +239,9 @@ impl Map {
                 return Ok(this.clone());
             }
         }
-        context.throw_type_error("'this' is not a Map")
+        Err(JsNativeError::typ()
+            .with_message("'this' is not a Map")
+            .into())
     }
 
     /// `get Map.prototype.size`
@@ -257,11 +255,7 @@ impl Map {
     ///
     /// [spec]: https://tc39.es/ecma262/#sec-get-map.prototype.size
     /// [mdn]: https://developer.mozilla.org/en-US/docs/Web/JavaScript/Reference/Global_Objects/Map/size
-    pub(crate) fn get_size(
-        this: &JsValue,
-        _: &[JsValue],
-        context: &mut Context,
-    ) -> JsResult<JsValue> {
+    pub(crate) fn get_size(this: &JsValue, _: &[JsValue], _: &mut Context) -> JsResult<JsValue> {
         // 1. Let M be the this value.
         if let Some(object) = this.as_object() {
             // 2. Perform ? RequireInternalSlot(M, [[MapData]]).
@@ -274,7 +268,9 @@ impl Map {
                 return Ok(map.len().into());
             }
         }
-        context.throw_type_error("'this' is not a Map")
+        Err(JsNativeError::typ()
+            .with_message("'this' is not a Map")
+            .into())
     }
 
     /// `Map.prototype.delete( key )`
@@ -288,11 +284,7 @@ impl Map {
     ///
     /// [spec]: https://tc39.es/ecma262/#sec-map.prototype.delete
     /// [mdn]: https://developer.mozilla.org/en-US/docs/Web/JavaScript/Reference/Global_Objects/Map/delete
-    pub(crate) fn delete(
-        this: &JsValue,
-        args: &[JsValue],
-        context: &mut Context,
-    ) -> JsResult<JsValue> {
+    pub(crate) fn delete(this: &JsValue, args: &[JsValue], _: &mut Context) -> JsResult<JsValue> {
         let key = args.get_or_undefined(0);
 
         // 1. Let M be the this value.
@@ -308,7 +300,9 @@ impl Map {
                 return Ok(map.remove(key).is_some().into());
             }
         }
-        context.throw_type_error("'this' is not a Map")
+        Err(JsNativeError::typ()
+            .with_message("'this' is not a Map")
+            .into())
     }
 
     /// `Map.prototype.get( key )`
@@ -321,11 +315,7 @@ impl Map {
     ///
     /// [spec]: https://tc39.es/ecma262/#sec-map.prototype.get
     /// [mdn]: https://developer.mozilla.org/en-US/docs/Web/JavaScript/Reference/Global_Objects/Map/get
-    pub(crate) fn get(
-        this: &JsValue,
-        args: &[JsValue],
-        context: &mut Context,
-    ) -> JsResult<JsValue> {
+    pub(crate) fn get(this: &JsValue, args: &[JsValue], _: &mut Context) -> JsResult<JsValue> {
         const JS_ZERO: &JsValue = &JsValue::Rational(0f64);
 
         let key = args.get_or_undefined(0);
@@ -352,7 +342,9 @@ impl Map {
             }
         }
 
-        context.throw_type_error("'this' is not a Map")
+        Err(JsNativeError::typ()
+            .with_message("'this' is not a Map")
+            .into())
     }
 
     /// `Map.prototype.clear( )`
@@ -365,7 +357,7 @@ impl Map {
     ///
     /// [spec]: https://tc39.es/ecma262/#sec-map.prototype.clear
     /// [mdn]: https://developer.mozilla.org/en-US/docs/Web/JavaScript/Reference/Global_Objects/Map/clear
-    pub(crate) fn clear(this: &JsValue, _: &[JsValue], context: &mut Context) -> JsResult<JsValue> {
+    pub(crate) fn clear(this: &JsValue, _: &[JsValue], _: &mut Context) -> JsResult<JsValue> {
         // 1. Let M be the this value.
         // 2. Perform ? RequireInternalSlot(M, [[MapData]]).
         if let Some(object) = this.as_object() {
@@ -380,7 +372,9 @@ impl Map {
                 return Ok(JsValue::undefined());
             }
         }
-        context.throw_type_error("'this' is not a Map")
+        Err(JsNativeError::typ()
+            .with_message("'this' is not a Map")
+            .into())
     }
 
     /// `Map.prototype.has( key )`
@@ -393,11 +387,7 @@ impl Map {
     ///
     /// [spec]: https://tc39.es/ecma262/#sec-map.prototype.has
     /// [mdn]: https://developer.mozilla.org/en-US/docs/Web/JavaScript/Reference/Global_Objects/Map/has
-    pub(crate) fn has(
-        this: &JsValue,
-        args: &[JsValue],
-        context: &mut Context,
-    ) -> JsResult<JsValue> {
+    pub(crate) fn has(this: &JsValue, args: &[JsValue], _: &mut Context) -> JsResult<JsValue> {
         const JS_ZERO: &JsValue = &JsValue::Rational(0f64);
 
         let key = args.get_or_undefined(0);
@@ -424,7 +414,9 @@ impl Map {
             }
         }
 
-        context.throw_type_error("'this' is not a Map")
+        Err(JsNativeError::typ()
+            .with_message("'this' is not a Map")
+            .into())
     }
 
     /// `Map.prototype.forEach( callbackFn [ , thisArg ] )`
@@ -447,12 +439,12 @@ impl Map {
         let map = this
             .as_object()
             .filter(|obj| obj.is_map())
-            .ok_or_else(|| context.construct_type_error("`this` is not a Map"))?;
+            .ok_or_else(|| JsNativeError::typ().with_message("`this` is not a Map"))?;
 
         // 3. If IsCallable(callbackfn) is false, throw a TypeError exception.
         let callback = args.get_or_undefined(0);
         let callback = callback.as_callable().ok_or_else(|| {
-            context.construct_type_error(format!("{} is not a function", callback.display()))
+            JsNativeError::typ().with_message(format!("{} is not a function", callback.display()))
         })?;
 
         let this_arg = args.get_or_undefined(1);
@@ -535,7 +527,7 @@ pub(crate) fn add_entries_from_iterable(
 ) -> JsResult<JsValue> {
     // 1. If IsCallable(adder) is false, throw a TypeError exception.
     let adder = adder.as_callable().ok_or_else(|| {
-        context.construct_type_error("property `set` of `NewTarget` is not callable")
+        JsNativeError::typ().with_message("property `set` of `NewTarget` is not callable")
     })?;
 
     // 2. Let iteratorRecord be ? GetIterator(iterable).
@@ -548,19 +540,18 @@ pub(crate) fn add_entries_from_iterable(
 
         // b. If next is false, return target.
         // c. Let nextItem be ? IteratorValue(next).
-        let next_item = if let Some(next) = next {
-            next.value(context)?
-        } else {
+        let Some(next_item) = next else {
             return Ok(target.clone().into());
         };
 
-        let next_item = if let Some(obj) = next_item.as_object() {
-            obj
-        // d. If Type(nextItem) is not Object, then
-        } else {
+        let next_item = next_item.value(context)?;
+
+        let Some(next_item) = next_item.as_object() else {
+            // d. If Type(nextItem) is not Object, then
             // i. Let error be ThrowCompletion(a newly created TypeError object).
-            let err = context
-                .throw_type_error("cannot get key and value from primitive item of `iterable`");
+            let err = Err(JsNativeError::typ()
+                .with_message("cannot get key and value from primitive item of `iterable`")
+                .into());
 
             // ii. Return ? IteratorClose(iteratorRecord, error).
             return iterator_record.close(err, context);

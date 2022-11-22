@@ -1,4 +1,9 @@
-use crate::{object::ObjectKind, property::PropertyDescriptor};
+use std::borrow::Cow;
+
+use crate::{
+    builtins::promise::PromiseState, js_string, object::ObjectKind, property::PropertyDescriptor,
+    JsError, JsString,
+};
 
 use super::{fmt, Display, HashSet, JsValue, PropertyKey};
 
@@ -102,7 +107,9 @@ pub(crate) fn log_string_from(x: &JsValue, print_internals: bool, print_children
             // Can use the private "type" field of an Object to match on
             // which type of Object it represents for special printing
             match v.borrow().kind() {
-                ObjectKind::String(ref string) => format!("String {{ \"{string}\" }}"),
+                ObjectKind::String(ref string) => {
+                    format!("String {{ \"{}\" }}", string.to_std_string_escaped())
+                }
                 ObjectKind::Boolean(boolean) => format!("Boolean {{ {boolean} }}"),
                 ObjectKind::Number(rational) => {
                     if rational.is_sign_negative() && *rational == 0.0 {
@@ -116,7 +123,7 @@ pub(crate) fn log_string_from(x: &JsValue, print_internals: bool, print_children
                     let len = v
                         .borrow()
                         .properties()
-                        .get(&PropertyKey::from("length"))
+                        .get(&PropertyKey::from(js_string!("length")))
                         .expect("array object must have 'length' property")
                         // FIXME: handle accessor descriptors
                         .expect_value()
@@ -139,9 +146,9 @@ pub(crate) fn log_string_from(x: &JsValue, print_internals: bool, print_children
                                     .borrow()
                                     .properties()
                                     .get(&i.into())
-                                    .and_then(PropertyDescriptor::value)
+                                    .and_then(|x| x.value().cloned())
                                 {
-                                    log_string_from(value, print_internals, false)
+                                    log_string_from(&value, print_internals, false)
                                 } else {
                                     String::from("<empty>")
                                 }
@@ -193,10 +200,57 @@ pub(crate) fn log_string_from(x: &JsValue, print_internals: bool, print_children
                         format!("Set({size})")
                     }
                 }
+                ObjectKind::Error(_) => {
+                    let name: Cow<'static, str> = v
+                        .get_property(&"name".into())
+                        .as_ref()
+                        .and_then(PropertyDescriptor::value)
+                        .map_or_else(
+                            || "<error>".into(),
+                            |v| {
+                                v.as_string()
+                                    .map_or_else(
+                                        || v.display().to_string(),
+                                        JsString::to_std_string_escaped,
+                                    )
+                                    .into()
+                            },
+                        );
+                    let message = v
+                        .get_property(&"message".into())
+                        .as_ref()
+                        .and_then(PropertyDescriptor::value)
+                        .map(|v| {
+                            v.as_string().map_or_else(
+                                || v.display().to_string(),
+                                JsString::to_std_string_escaped,
+                            )
+                        })
+                        .unwrap_or_default();
+                    if name.is_empty() {
+                        message
+                    } else if message.is_empty() {
+                        name.to_string()
+                    } else {
+                        format!("{name}: {message}")
+                    }
+                }
+                ObjectKind::Promise(ref promise) => {
+                    format!(
+                        "Promise {{ {} }}",
+                        match promise.state() {
+                            PromiseState::Pending => Cow::Borrowed("<pending>"),
+                            PromiseState::Fulfilled(val) => Cow::Owned(val.display().to_string()),
+                            PromiseState::Rejected(reason) => Cow::Owned(format!(
+                                "<rejected> {}",
+                                JsError::from_opaque(reason.clone())
+                            )),
+                        }
+                    )
+                }
                 _ => display_obj(x, print_internals),
             }
         }
-        JsValue::Symbol(ref symbol) => symbol.to_string(),
         _ => x.display().to_string(),
     }
 }
@@ -237,7 +291,7 @@ pub(crate) fn display_obj(v: &JsValue, print_internals: bool) -> String {
             };
 
             // If the current object is referenced in a different branch,
-            // it will not cause an infinte printing loop, so it is safe to be printed again
+            // it will not cause an infinite printing loop, so it is safe to be printed again
             encounters.remove(&addr);
 
             let closing_indent = String::from_utf8(vec![b' '; indent.wrapping_sub(4)])
@@ -254,26 +308,6 @@ pub(crate) fn display_obj(v: &JsValue, print_internals: bool) -> String {
     // in-memory address in this set
     let mut encounters = HashSet::new();
 
-    if let JsValue::Object(object) = v {
-        if object.borrow().is_error() {
-            let name = v
-                .get_property("name")
-                .as_ref()
-                .and_then(PropertyDescriptor::value)
-                .unwrap_or(&JsValue::Undefined)
-                .display()
-                .to_string();
-            let message = v
-                .get_property("message")
-                .as_ref()
-                .and_then(PropertyDescriptor::value)
-                .unwrap_or(&JsValue::Undefined)
-                .display()
-                .to_string();
-            return format!("{name}: {message}");
-        }
-    }
-
     display_obj_internal(v, &mut encounters, 4, print_internals)
 }
 
@@ -283,11 +317,10 @@ impl Display for ValueDisplay<'_> {
             JsValue::Null => write!(f, "null"),
             JsValue::Undefined => write!(f, "undefined"),
             JsValue::Boolean(v) => write!(f, "{v}"),
-            JsValue::Symbol(ref symbol) => match symbol.description() {
-                Some(description) => write!(f, "Symbol({description})"),
-                None => write!(f, "Symbol()"),
-            },
-            JsValue::String(ref v) => write!(f, "\"{v}\""),
+            JsValue::Symbol(ref symbol) => {
+                write!(f, "{}", symbol.descriptive_string().to_std_string_escaped())
+            }
+            JsValue::String(ref v) => write!(f, "\"{}\"", v.to_std_string_escaped()),
             JsValue::Rational(v) => format_rational(*v, f),
             JsValue::Object(_) => {
                 write!(f, "{}", log_string_from(self.value, self.internals, true))
@@ -300,7 +333,7 @@ impl Display for ValueDisplay<'_> {
 
 /// This is different from the ECMAScript compliant number to string, in the printing of `-0`.
 ///
-/// This function prints `-0` as `-0` instead of pasitive `0` as the specification says.
+/// This function prints `-0` as `-0` instead of positive `0` as the specification says.
 /// This is done to make it easer for the user of the REPL to identify what is a `-0` vs `0`,
 /// since the REPL is not bound to the ECMAScript specification we can do this.
 fn format_rational(v: f64, f: &mut fmt::Formatter<'_>) -> fmt::Result {

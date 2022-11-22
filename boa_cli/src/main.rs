@@ -59,11 +59,12 @@
     rustdoc::missing_doc_code_examples
 )]
 
-use boa_engine::{syntax::ast::node::StatementList, Context};
-use clap::{ArgEnum, Parser};
+use boa_ast::StatementList;
+use boa_engine::Context;
+use clap::{Parser, ValueEnum, ValueHint};
 use colored::{Color, Colorize};
 use rustyline::{config::Config, error::ReadlineError, EditMode, Editor};
-use std::{fs::read, io, path::PathBuf};
+use std::{fs::read, fs::OpenOptions, io, path::PathBuf};
 mod helper;
 
 #[cfg(all(target_arch = "x86_64", target_os = "linux", target_env = "gnu"))]
@@ -83,26 +84,32 @@ const READLINE_COLOR: Color = Color::Cyan;
 // https://docs.rs/structopt/0.3.11/structopt/#type-magic
 #[allow(clippy::option_option)]
 #[derive(Debug, Parser)]
-#[clap(author, about, name = "boa")]
+#[command(author, version, about, name = "boa")]
 struct Opt {
     /// The JavaScript file(s) to be evaluated.
-    #[clap(name = "FILE", parse(from_os_str))]
+    #[arg(name = "FILE", value_hint = ValueHint::FilePath)]
     files: Vec<PathBuf>,
 
     /// Dump the AST to stdout with the given format.
-    #[clap(long, short = 'a', value_name = "FORMAT", ignore_case = true, arg_enum)]
+    #[arg(
+        long,
+        short = 'a',
+        value_name = "FORMAT",
+        ignore_case = true,
+        value_enum
+    )]
     dump_ast: Option<Option<DumpFormat>>,
 
     /// Dump the AST to stdout with the given format.
-    #[clap(long = "trace", short = 't')]
+    #[arg(long, short)]
     trace: bool,
 
     /// Use vi mode in the REPL
-    #[clap(long = "vi")]
+    #[arg(long = "vi")]
     vi_mode: bool,
 
     #[cfg(feature = "instrumentation")]
-    #[structopt(long = "instrumentation", short = 'i', parse(from_os_str))]
+    #[structopt(long = "instrumentation", short = 'i', value_hint = ValueHint::FilePath)]
     advice: Option<PathBuf>,
 }
 
@@ -113,10 +120,9 @@ impl Opt {
     }
 }
 
-#[derive(Debug, Clone, ArgEnum)]
+#[derive(Debug, Clone, ValueEnum)]
 enum DumpFormat {
     /// The different types of format available for dumping.
-    ///
     // NOTE: This can easily support other formats just by
     // adding a field to this enum and adding the necessary
     // implementation. Example: Toml, Html, etc.
@@ -142,11 +148,9 @@ fn parse_tokens<S>(src: S, context: &mut Context) -> Result<StatementList, Strin
 where
     S: AsRef<[u8]>,
 {
-    use boa_engine::syntax::parser::Parser;
-
     let src_bytes = src.as_ref();
-    Parser::new(src_bytes)
-        .parse_all(context)
+    boa_parser::Parser::new(src_bytes)
+        .parse_all(context.interner_mut())
         .map_err(|e| format!("ParsingError: {e}"))
 }
 
@@ -184,7 +188,7 @@ where
     Ok(())
 }
 
-pub fn main() -> Result<(), std::io::Error> {
+pub fn main() -> Result<(), io::Error> {
     let args = Opt::parse();
 
     let mut context = Context::default();
@@ -192,7 +196,10 @@ pub fn main() -> Result<(), std::io::Error> {
     #[cfg(feature = "instrumentation")]
     if let Some(path) = &args.advice {
         let advice_buffer = read(path)?;
-        context.install_advice(advice_buffer);
+        match context.install_advice(advice_buffer) {
+            Ok(()) => {}
+            Err(err) => eprintln!("Instrumentation: uncaught {err:?}"),
+        };
     };
 
     // Trace Output
@@ -208,7 +215,7 @@ pub fn main() -> Result<(), std::io::Error> {
         } else {
             match context.eval(&buffer) {
                 Ok(v) => println!("{}", v.display()),
-                Err(v) => eprintln!("Uncaught {}", v.display()),
+                Err(v) => eprintln!("Uncaught {v}"),
             }
         }
     }
@@ -223,7 +230,14 @@ pub fn main() -> Result<(), std::io::Error> {
             })
             .build();
 
-        let mut editor = Editor::with_config(config);
+        let mut editor =
+            Editor::with_config(config).map_err(|e| io::Error::new(io::ErrorKind::Other, e))?;
+        // Check if the history file exists. If it does, create it.
+        OpenOptions::new()
+            .read(true)
+            .write(true)
+            .create(true)
+            .open(CLI_HISTORY)?;
         editor.load_history(CLI_HISTORY).map_err(|err| match err {
             ReadlineError::Io(e) => e,
             e => io::Error::new(io::ErrorKind::Other, e),
@@ -248,11 +262,7 @@ pub fn main() -> Result<(), std::io::Error> {
                         match context.eval(line.trim_end()) {
                             Ok(v) => println!("{}", v.display()),
                             Err(v) => {
-                                eprintln!(
-                                    "{}: {}",
-                                    "Uncaught".red(),
-                                    v.display().to_string().red()
-                                );
+                                eprintln!("{}: {}", "Uncaught".red(), v.to_string().red());
                             }
                         }
                     }

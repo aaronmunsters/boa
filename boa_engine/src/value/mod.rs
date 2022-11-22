@@ -10,12 +10,14 @@ use crate::{
         number::{f64_to_int32, f64_to_uint32},
         Number,
     },
+    error::JsNativeError,
+    js_string,
     object::{JsObject, ObjectData},
     property::{PropertyDescriptor, PropertyKey},
     symbol::{JsSymbol, WellKnownSymbols},
     Context, JsBigInt, JsResult, JsString,
 };
-use boa_gc::{Finalize, Trace};
+use boa_gc::{custom_trace, Finalize, Trace};
 use boa_profiler::Profiler;
 use num_bigint::BigInt;
 use num_integer::Integer;
@@ -25,7 +27,6 @@ use std::{
     collections::HashSet,
     fmt::{self, Display},
     ops::Sub,
-    str::FromStr,
 };
 
 #[cfg(feature = "instrumentation")]
@@ -57,7 +58,7 @@ static TWO_E_63: Lazy<BigInt> = Lazy::new(|| {
 });
 
 /// A Javascript value
-#[derive(Trace, Finalize, Debug, Clone)]
+#[derive(Finalize, Debug, Clone)]
 pub enum JsValue {
     /// `null` - A null value, for when a value doesn't exist.
     Null,
@@ -65,7 +66,7 @@ pub enum JsValue {
     Undefined,
     /// `boolean` - A `true` / `false` value, for if a certain criteria is met.
     Boolean(bool),
-    /// `String` - A UTF-8 string, such as `"Hello, world"`.
+    /// `String` - A UTF-16 string, such as `"Hello, world"`.
     String(JsString),
     /// `Number` - A 64-bit floating point number, such as `3.1415`
     Rational(f64),
@@ -77,6 +78,14 @@ pub enum JsValue {
     Object(JsObject),
     /// `Symbol` - A Symbol Primitive type.
     Symbol(JsSymbol),
+}
+
+unsafe impl Trace for JsValue {
+    custom_trace! {this, {
+        if let Self::Object(o) = this {
+            mark(o);
+        }
+    }}
 }
 
 impl JsValue {
@@ -212,13 +221,13 @@ impl JsValue {
     #[inline]
     #[allow(clippy::float_cmp)]
     pub fn is_integer(&self) -> bool {
-        // If it can fit in a i32 and the trucated version is
+        // If it can fit in a i32 and the truncated version is
         // equal to the original then it is an integer.
-        let is_racional_intiger = |n: f64| n == f64::from(n as i32);
+        let is_rational_integer = |n: f64| n == f64::from(n as i32);
 
         match *self {
             Self::Integer(_) => true,
-            Self::Rational(n) if is_racional_intiger(n) => true,
+            Self::Rational(n) if is_rational_integer(n) => true,
             _ => false,
         }
     }
@@ -312,7 +321,7 @@ impl JsValue {
         match self {
             Self::Object(ref object) => {
                 // TODO: had to skip `__get_own_properties__` since we don't have context here
-                let property = object.borrow().properties().get(&key).cloned();
+                let property = object.borrow().properties().get(&key);
                 if property.is_some() {
                     return property;
                 }
@@ -355,16 +364,11 @@ impl JsValue {
                             PreferredType::Default => "default",
                             PreferredType::String => "string",
                             PreferredType::Number => "number",
-                        };
-
-                        let preferred_type_symbol =
-                            context.interner_mut().get_or_intern(preferred_type_string);
-                        let preferred_type_string =
-                            context.interner().resolve_expect(preferred_type_symbol);
-                        let preferred_type_js_value = JsValue::from(preferred_type_string);
+                        }
+                        .into();
 
                         let result =
-                            context.call(trap, &advice, &[self.into(), preferred_type_js_value]);
+                            context.call(trap, &advice, &[self.into(), preferred_type_string]);
 
                         match result {
                             Ok(_) => {
@@ -372,7 +376,7 @@ impl JsValue {
                                 return result;
                             }
                             Err(v) => {
-                                panic!("Instrumentation: Uncaught {}", v.display());
+                                panic!("Instrumentation: Uncaught {}", v.to_string());
                             }
                         }
                     }
@@ -382,9 +386,9 @@ impl JsValue {
 
         // 1. Assert: input is an ECMAScript language value. (always a value not need to check)
         // 2. If Type(input) is Object, then
-        if self.is_object() {
+        if let Some(input) = self.as_object() {
             // a. Let exoticToPrim be ? GetMethod(input, @@toPrimitive).
-            let exotic_to_prim = self.get_method(WellKnownSymbols::to_primitive(), context)?;
+            let exotic_to_prim = input.get_method(WellKnownSymbols::to_primitive(), context)?;
 
             // b. If exoticToPrim is not undefined, then
             if let Some(exotic_to_prim) = exotic_to_prim {
@@ -405,7 +409,9 @@ impl JsValue {
                 // v. If Type(result) is not Object, return result.
                 // vi. Throw a TypeError exception.
                 return if result.is_object() {
-                    context.throw_type_error("Symbol.toPrimitive cannot return an object")
+                    Err(JsNativeError::typ()
+                        .with_message("Symbol.toPrimitive cannot return an object")
+                        .into())
                 } else {
                     Ok(result)
                 };
@@ -418,13 +424,11 @@ impl JsValue {
             };
 
             // d. Return ? OrdinaryToPrimitive(input, preferredType).
-            self.as_object()
-                .expect("self was not an object")
-                .ordinary_to_primitive(context, preferred_type)
-        } else {
-            // 3. Return input.
-            Ok(self.clone())
+            return input.ordinary_to_primitive(context, preferred_type);
         }
+
+        // 3. Return input.
+        Ok(self.clone())
     }
 
     /// `7.1.13 ToBigInt ( argument )`
@@ -435,28 +439,37 @@ impl JsValue {
     /// [spec]: https://tc39.es/ecma262/#sec-tobigint
     pub fn to_bigint(&self, context: &mut Context) -> JsResult<JsBigInt> {
         match self {
-            Self::Null => context.throw_type_error("cannot convert null to a BigInt"),
-            Self::Undefined => context.throw_type_error("cannot convert undefined to a BigInt"),
+            Self::Null => Err(JsNativeError::typ()
+                .with_message("cannot convert null to a BigInt")
+                .into()),
+            Self::Undefined => Err(JsNativeError::typ()
+                .with_message("cannot convert undefined to a BigInt")
+                .into()),
             Self::String(ref string) => {
-                if let Some(value) = JsBigInt::from_string(string) {
+                if let Some(value) = string.to_big_int() {
                     Ok(value)
                 } else {
-                    context.throw_syntax_error(format!(
-                        "cannot convert string '{string}' to bigint primitive",
-                    ))
+                    Err(JsNativeError::syntax()
+                        .with_message(format!(
+                            "cannot convert string '{}' to bigint primitive",
+                            string.to_std_string_escaped()
+                        ))
+                        .into())
                 }
             }
             Self::Boolean(true) => Ok(JsBigInt::one()),
             Self::Boolean(false) => Ok(JsBigInt::zero()),
-            Self::Integer(_) | Self::Rational(_) => {
-                context.throw_type_error("cannot convert Number to a BigInt")
-            }
+            Self::Integer(_) | Self::Rational(_) => Err(JsNativeError::typ()
+                .with_message("cannot convert Number to a BigInt")
+                .into()),
             Self::BigInt(b) => Ok(b.clone()),
             Self::Object(_) => {
                 let primitive = self.to_primitive(context, PreferredType::Number)?;
                 primitive.to_bigint(context)
             }
-            Self::Symbol(_) => context.throw_type_error("cannot convert Symbol to a BigInt"),
+            Self::Symbol(_) => Err(JsNativeError::typ()
+                .with_message("cannot convert Symbol to a BigInt")
+                .into()),
         }
     }
 
@@ -493,7 +506,9 @@ impl JsValue {
             Self::Rational(rational) => Ok(Number::to_native_string(*rational).into()),
             Self::Integer(integer) => Ok(integer.to_string().into()),
             Self::String(string) => Ok(string.clone()),
-            Self::Symbol(_) => context.throw_type_error("can't convert symbol to string"),
+            Self::Symbol(_) => Err(JsNativeError::typ()
+                .with_message("can't convert symbol to string")
+                .into()),
             Self::BigInt(ref bigint) => Ok(bigint.to_string().into()),
             Self::Object(_) => {
                 let primitive = self.to_primitive(context, PreferredType::String)?;
@@ -509,9 +524,9 @@ impl JsValue {
     /// See: <https://tc39.es/ecma262/#sec-toobject>
     pub fn to_object(&self, context: &mut Context) -> JsResult<JsObject> {
         match self {
-            Self::Undefined | Self::Null => {
-                context.throw_type_error("cannot convert 'null' or 'undefined' to object")
-            }
+            Self::Undefined | Self::Null => Err(JsNativeError::typ()
+                .with_message("cannot convert 'null' or 'undefined' to object")
+                .into()),
             Self::Boolean(boolean) => {
                 let prototype = context.intrinsics().constructors().boolean().prototype();
                 Ok(JsObject::from_proto_and_data(
@@ -540,9 +555,9 @@ impl JsValue {
                     JsObject::from_proto_and_data(prototype, ObjectData::string(string.clone()));
                 // Make sure the correct length is set on our new string object
                 object.insert_property(
-                    "length",
+                    js_string!("length"),
                     PropertyDescriptor::builder()
-                        .value(string.encode_utf16().count())
+                        .value(string.len())
                         .writable(false)
                         .enumerable(false)
                         .configurable(false),
@@ -579,12 +594,15 @@ impl JsValue {
             // Fast path:
             Self::String(string) => string.clone().into(),
             Self::Symbol(symbol) => symbol.clone().into(),
+            Self::Integer(integer) => (*integer).into(),
             // Slow path:
-            _ => match self.to_primitive(context, PreferredType::String)? {
+            Self::Object(_) => match self.to_primitive(context, PreferredType::String)? {
                 Self::String(ref string) => string.clone().into(),
                 Self::Symbol(ref symbol) => symbol.clone().into(),
+                Self::Integer(integer) => integer.into(),
                 primitive => primitive.to_string(context)?.into(),
             },
+            primitive => primitive.to_string(context)?.into(),
         })
     }
 
@@ -592,11 +610,16 @@ impl JsValue {
     ///
     /// See: <https://tc39.es/ecma262/#sec-tonumeric>
     pub fn to_numeric(&self, context: &mut Context) -> JsResult<Numeric> {
+        // 1. Let primValue be ? ToPrimitive(value, number).
         let primitive = self.to_primitive(context, PreferredType::Number)?;
+
+        // 2. If primValue is a BigInt, return primValue.
         if let Some(bigint) = primitive.as_bigint() {
             return Ok(bigint.clone().into());
         }
-        Ok(self.to_number(context)?.into())
+
+        // 3. Return ? ToNumber(primValue).
+        Ok(primitive.to_number(context)?.into())
     }
 
     /// Converts a value to an integral 32 bit unsigned integer.
@@ -824,7 +847,7 @@ impl JsValue {
     /// Converts a value to a non-negative integer if it is a valid integer index value.
     ///
     /// See: <https://tc39.es/ecma262/#sec-toindex>
-    pub fn to_index(&self, context: &mut Context) -> JsResult<usize> {
+    pub fn to_index(&self, context: &mut Context) -> JsResult<u64> {
         // 1. If value is undefined, then
         if self.is_undefined() {
             // a. Return 0.
@@ -840,26 +863,28 @@ impl JsValue {
 
         // c. If ! SameValue(𝔽(integer), clamped) is false, throw a RangeError exception.
         if integer != clamped {
-            return context.throw_range_error("Index must be between 0 and  2^53 - 1");
+            return Err(JsNativeError::range()
+                .with_message("Index must be between 0 and  2^53 - 1")
+                .into());
         }
 
         // d. Assert: 0 ≤ integer ≤ 2^53 - 1.
         debug_assert!(0 <= clamped && clamped <= Number::MAX_SAFE_INTEGER as i64);
 
         // e. Return integer.
-        Ok(clamped as usize)
+        Ok(clamped as u64)
     }
 
     /// Converts argument to an integer suitable for use as the length of an array-like object.
     ///
     /// See: <https://tc39.es/ecma262/#sec-tolength>
-    pub fn to_length(&self, context: &mut Context) -> JsResult<usize> {
+    pub fn to_length(&self, context: &mut Context) -> JsResult<u64> {
         // 1. Let len be ? ToInteger(argument).
         // 2. If len ≤ +0, return +0.
         // 3. Return min(len, 2^53 - 1).
         Ok(self
             .to_integer_or_infinity(context)?
-            .clamp_finite(0, Number::MAX_SAFE_INTEGER as i64) as usize)
+            .clamp_finite(0, Number::MAX_SAFE_INTEGER as i64) as u64)
     }
 
     /// Abstract operation `ToIntegerOrInfinity ( argument )`
@@ -904,11 +929,15 @@ impl JsValue {
             Self::Null => Ok(0.0),
             Self::Undefined => Ok(f64::NAN),
             Self::Boolean(b) => Ok(if b { 1.0 } else { 0.0 }),
-            Self::String(ref string) => Ok(string.string_to_number()),
+            Self::String(ref string) => Ok(string.to_number()),
             Self::Rational(number) => Ok(number),
             Self::Integer(integer) => Ok(f64::from(integer)),
-            Self::Symbol(_) => context.throw_type_error("argument must not be a symbol"),
-            Self::BigInt(_) => context.throw_type_error("argument must not be a bigint"),
+            Self::Symbol(_) => Err(JsNativeError::typ()
+                .with_message("argument must not be a symbol")
+                .into()),
+            Self::BigInt(_) => Err(JsNativeError::typ()
+                .with_message("argument must not be a bigint")
+                .into()),
             Self::Object(_) => {
                 let primitive = self.to_primitive(context, PreferredType::Number)?;
                 primitive.to_number(context)
@@ -941,9 +970,11 @@ impl JsValue {
     /// [table]: https://tc39.es/ecma262/#table-14
     /// [spec]: https://tc39.es/ecma262/#sec-requireobjectcoercible
     #[inline]
-    pub fn require_object_coercible(&self, context: &mut Context) -> JsResult<&Self> {
+    pub fn require_object_coercible(&self) -> JsResult<&Self> {
         if self.is_null_or_undefined() {
-            context.throw_type_error("cannot convert null or undefined to Object")
+            Err(JsNativeError::typ()
+                .with_message("cannot convert null or undefined to Object")
+                .into())
         } else {
             Ok(self)
         }
@@ -954,9 +985,9 @@ impl JsValue {
         // 1. If Type(Obj) is not Object, throw a TypeError exception.
         self.as_object()
             .ok_or_else(|| {
-                context.construct_type_error(
-                    "Cannot construct a property descriptor from a non-object",
-                )
+                JsNativeError::typ()
+                    .with_message("Cannot construct a property descriptor from a non-object")
+                    .into()
             })
             .and_then(|obj| obj.to_property_descriptor(context))
     }
@@ -996,13 +1027,13 @@ impl JsValue {
     ///  - [ECMAScript reference][spec]
     ///
     /// [spec]: https://tc39.es/ecma262/#sec-isarray
-    pub(crate) fn is_array(&self, context: &mut Context) -> JsResult<bool> {
+    pub(crate) fn is_array(&self) -> JsResult<bool> {
         // Note: The spec specifies this function for JsValue.
         // The main part of the function is implemented for JsObject.
 
         // 1. If Type(argument) is not Object, return false.
         if let Some(object) = self.as_object() {
-            object.is_array_abstract(context)
+            object.is_array_abstract()
         }
         // 4. Return false.
         else {
@@ -1017,7 +1048,7 @@ impl Default for JsValue {
     }
 }
 
-/// The preffered type to convert an object to a primitive `Value`.
+/// The preferred type to convert an object to a primitive `Value`.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub enum PreferredType {
     String,

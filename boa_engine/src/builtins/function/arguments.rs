@@ -1,12 +1,11 @@
 use crate::{
-    builtins::Array,
     environments::DeclarativeEnvironment,
     object::{JsObject, ObjectData},
     property::PropertyDescriptor,
     symbol::{self, WellKnownSymbols},
-    syntax::ast::node::FormalParameterList,
     Context, JsValue,
 };
+use boa_ast::{function::FormalParameterList, operations::bound_names};
 use boa_gc::{Finalize, Gc, Trace};
 use rustc_hash::FxHashMap;
 
@@ -111,10 +110,11 @@ impl Arguments {
         // 7. Perform ! DefinePropertyOrThrow(obj, @@iterator, PropertyDescriptor {
         // [[Value]]: %Array.prototype.values%, [[Writable]]: true, [[Enumerable]]: false,
         // [[Configurable]]: true }).
+        let values_function = context.intrinsics().objects().array_prototype_values();
         obj.define_property_or_throw(
             symbol::WellKnownSymbols::iterator(),
             PropertyDescriptor::builder()
-                .value(Array::values_intrinsic(context))
+                .value(values_function)
                 .writable(true)
                 .enumerable(false)
                 .configurable(true),
@@ -199,18 +199,16 @@ impl Arguments {
 
         let mut bindings = FxHashMap::default();
         let mut property_index = 0;
-        'outer: for formal in formals.parameters.iter() {
-            for name in formal.names() {
-                if property_index >= len {
-                    break 'outer;
-                }
-                let binding_index = bindings.len() + 1;
-                let entry = bindings
-                    .entry(name)
-                    .or_insert((binding_index, property_index));
-                entry.1 = property_index;
-                property_index += 1;
+        for name in bound_names(formals) {
+            if property_index >= len {
+                break;
             }
+            let binding_index = bindings.len() + 1;
+            let entry = bindings
+                .entry(name)
+                .or_insert((binding_index, property_index));
+            entry.1 = property_index;
+            property_index += 1;
         }
 
         let mut map = ParameterMap {
@@ -263,10 +261,11 @@ impl Arguments {
         // 20. Perform ! DefinePropertyOrThrow(obj, @@iterator, PropertyDescriptor {
         // [[Value]]: %Array.prototype.values%, [[Writable]]: true, [[Enumerable]]: false,
         // [[Configurable]]: true }).
+        let values_function = context.intrinsics().objects().array_prototype_values();
         obj.define_property_or_throw(
             WellKnownSymbols::iterator(),
             PropertyDescriptor::builder()
-                .value(Array::values_intrinsic(context))
+                .value(values_function)
                 .writable(true)
                 .enumerable(false)
                 .configurable(true),
