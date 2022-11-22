@@ -1,7 +1,5 @@
 use std::ops::Neg;
 
-use gc::{Finalize, Trace};
-
 use crate::{
     builtins::Number,
     object::ObjectInitializer,
@@ -9,6 +7,7 @@ use crate::{
     value::{Numeric, PreferredType},
     Context, JsBigInt, JsError, JsNativeError, JsResult, JsValue,
 };
+use boa_gc::{Finalize, Trace};
 use tap::Conv;
 
 #[cfg(feature = "instrumentation")]
@@ -225,7 +224,7 @@ impl Hooks {
                     return Err(JsError::from_native(JsNativeError::typ().with_message(
                         format!(
                             "right-hand side of 'in' should be an object, got {}",
-                            r.type_of().to_std_string_escaped()
+                            r.type_of()
                         ),
                     )));
                 }

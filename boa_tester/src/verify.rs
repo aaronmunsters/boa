@@ -85,7 +85,7 @@ fn verify_once(input: &NameProgram, analyses: &Vec<NameProgram>) -> Option<BaseR
                 let mut context = Context::default();
                 match context.install_advice(analysis.program.clone()) {
                     Ok(()) => {}
-                    Err(e) => eprintln!("{}", e.display()),
+                    Err(e) => eprintln!("{}", e.to_string()),
                 };
                 match context.eval(input.program.clone()) {
                     Ok(instr_res) => match uninstr_res.strict_equals(&instr_res) {
