@@ -13,9 +13,6 @@ use boa_interner::ToInternedString;
 use boa_profiler::Profiler;
 use std::{convert::TryInto, mem::size_of, time::Instant};
 
-// #[cfg(feature = "instrumentation")]
-// use crate::instrumentation::EvaluationMode;
-
 mod call_frame;
 mod code_block;
 mod opcode;
@@ -127,43 +124,6 @@ impl Context {
         };
 
         let _timer = Profiler::global().start_event(opcode.as_instruction_str(), "vm");
-
-        // #[cfg(feature = "instrumentation")]
-        // if let EvaluationMode::BaseEvaluation = self.instrumentation_conf.mode() {
-        //     match opcode {
-        //         Opcode::SetPropertyByValue => {
-        //             if let Some(traps) = &mut self.instrumentation_conf.traps {
-        //                 let traps = traps.clone();
-        //                 if let Some(ref trap) = traps.set_trap {
-        //                     if let Some(advice) = self.instrumentation_conf.advice() {
-        //                         self.instrumentation_conf.set_mode_meta();
-
-        //                         let object = self.vm.pop();
-        //                         let key = self.vm.pop();
-        //                         let value = self.vm.pop();
-        //                         let object = if let Some(object) = object.as_object() {
-        //                             object.clone()
-        //                         } else {
-        //                             object.to_object(self)?
-        //                         };
-
-        //                         let result = self.call(trap, &advice, &[object.into(), key, value]);
-
-        //                         match result {
-        //                             Ok(_value) => {
-        //                                 self.instrumentation_conf.set_mode_base();
-        //                                 return Ok(ShouldExit::False);
-        //                             }
-        //                             Err(v) => {
-        //                                 panic!("Instrumentation: Uncaught {}", v.display());
-        //                             }
-        //                         }
-        //                     }
-        //                 }
-        //             }
-        //         }
-        //     }
-        // }
 
         let result = opcode.execute(self)?;
 

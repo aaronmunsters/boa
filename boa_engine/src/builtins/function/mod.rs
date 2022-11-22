@@ -46,9 +46,10 @@ use std::{
 };
 use tap::{Conv, Pipe};
 
+use super::promise::PromiseCapability;
+
 #[cfg(feature = "instrumentation")]
 use crate::instrumentation::EvaluationMode;
-use super::promise::PromiseCapability;
 
 pub(crate) mod arguments;
 #[cfg(test)]
@@ -230,6 +231,7 @@ pub enum Function {
     Ordinary {
         code: Gc<crate::vm::CodeBlock>,
         environments: DeclarativeEnvironmentStack,
+
         #[cfg(feature = "instrumentation")]
         evaluation_mode: EvaluationMode,
 

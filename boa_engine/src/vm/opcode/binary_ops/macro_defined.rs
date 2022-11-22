@@ -39,7 +39,7 @@ macro_rules! attempt_binary_instr {
 }
 
 macro_rules! implement_bin_ops {
-    ($name:ident, $op:ident, $doc_string:literal,  $instr_string:literal) => {
+    ($name:ident, $op:ident, $doc_string:literal, $instr_string:literal) => {
         #[doc= concat!("`", stringify!($name), "` implements the OpCode Operation for `Opcode::", stringify!($name), "`\n")]
         #[doc= "\n"]
         #[doc="Operation:\n"]

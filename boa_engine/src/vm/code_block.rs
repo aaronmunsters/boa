@@ -752,6 +752,7 @@ impl JsObject {
             } => {
                 let code = code.clone();
                 let mut environments = environments.clone();
+                #[cfg(feature = "instrumentation")]
                 let evaluation_mode = evaluation_mode.clone();
                 drop(object);
 
@@ -862,12 +863,15 @@ impl JsObject {
                     async_generator: None,
                 });
 
+                #[cfg(feature = "instrumentation")]
                 let outer_evaluation_mode = context.instrumentation_conf.mode();
+                #[cfg(feature = "instrumentation")]
                 context.instrumentation_conf.set_mode(evaluation_mode);
 
                 let result = context.run();
                 let frame = context.vm.pop_frame().expect("must have frame");
 
+                #[cfg(feature = "instrumentation")]
                 context.instrumentation_conf.set_mode(outer_evaluation_mode);
 
                 context.realm.environments.pop();
@@ -1388,8 +1392,6 @@ impl JsObject {
                 code,
                 environments,
                 constructor_kind,
-                #[cfg(feature = "instrumentation")]
-                evaluation_mode: _,
                 ..
             } => {
                 let code = code.clone();

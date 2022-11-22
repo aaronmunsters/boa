@@ -31,7 +31,10 @@ use boa_parser::{Error as ParseError, Parser};
 use boa_profiler::Profiler;
 
 #[cfg(feature = "instrumentation")]
-use crate::instrumentation::{Hooks, InstrumentationConf, Traps};
+use crate::{
+    instrumentation::{Hooks, InstrumentationConf, Traps},
+    JsError,
+};
 
 #[cfg(feature = "intl")]
 use icu_provider::DataError;
@@ -128,13 +131,13 @@ impl Context {
     }
 
     #[cfg(feature = "instrumentation")]
-    pub fn install_advice<S>(&mut self, advice_buff: S) -> Result<(), crate::JsError>
+    pub fn install_advice<S>(&mut self, advice_buff: S) -> Result<(), JsError>
     where
         S: AsRef<[u8]>,
     {
         self.instrumentation_conf.set_mode_meta();
         let advice_callback = self.eval(advice_buff)?;
-        let advice_callback = advice_callback.as_callable().ok_or(crate::JsError::from(
+        let advice_callback = advice_callback.as_callable().ok_or(JsError::from(
             JsNativeError::typ().with_message("Advice not callable"),
         ))?;
         let meta_hooks = Hooks::default(self);
