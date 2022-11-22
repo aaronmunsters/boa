@@ -1,1 +1,1 @@
-initSidebarItems({"struct":[["UriError","JavaScript `URIError` impleentation."]]});
+window.SIDEBAR_ITEMS = {"struct":[["UriError","JavaScript `URIError` implementation."]]};

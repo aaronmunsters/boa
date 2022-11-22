@@ -1,0 +1,1 @@
+window.SIDEBAR_ITEMS = {"struct":[["JsArray","`JsArray` provides a wrapper for Boa’s implementation of the JavaScript `Array` object."]]};

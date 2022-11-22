@@ -1,0 +1,1 @@
+window.SIDEBAR_ITEMS = {"fn":[["decode","The `Decode ( string, reservedSet )` abstract operation."],["decode_hex_byte","Decodes a byte from two unicode code units."],["encode","The `Encode ( string, unescapedSet )` abstract operation"]],"mod":[["consts","URI handling function constants"]],"struct":[["Uri","URI Handling Functions"]]};

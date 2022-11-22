@@ -1,11 +1,6 @@
-<!DOCTYPE html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1.0"><meta name="generator" content="rustdoc"><meta name="description" content="Source of the Rust file `boa_engine/src/builtins/eval/mod.rs`."><meta name="keywords" content="rust, rustlang, rust-lang"><title>mod.rs - source</title><link rel="preload" as="font" type="font/woff2" crossorigin href="../../../../SourceSerif4-Regular.ttf.woff2"><link rel="preload" as="font" type="font/woff2" crossorigin href="../../../../FiraSans-Regular.woff2"><link rel="preload" as="font" type="font/woff2" crossorigin href="../../../../FiraSans-Medium.woff2"><link rel="preload" as="font" type="font/woff2" crossorigin href="../../../../SourceCodePro-Regular.ttf.woff2"><link rel="preload" as="font" type="font/woff2" crossorigin href="../../../../SourceSerif4-Bold.ttf.woff2"><link rel="preload" as="font" type="font/woff2" crossorigin href="../../../../SourceCodePro-Semibold.ttf.woff2"><link rel="stylesheet" type="text/css" href="../../../../normalize.css"><link rel="stylesheet" type="text/css" href="../../../../rustdoc.css" id="mainThemeStyle"><link rel="stylesheet" type="text/css" href="../../../../ayu.css" disabled><link rel="stylesheet" type="text/css" href="../../../../dark.css" disabled><link rel="stylesheet" type="text/css" href="../../../../light.css" id="themeStyle"><script id="default-settings" ></script><script src="../../../../storage.js"></script><script src="../../../../crates.js"></script><script defer src="../../../../main.js"></script><script defer src="../../../../source-script.js"></script><script defer src="../../../../source-files.js"></script>
-    <noscript><link rel="stylesheet" href="../../../../noscript.css"></noscript><link rel="icon" href="https://raw.githubusercontent.com/boa-dev/boa/main/assets/logo.svg"></head><body class="rustdoc source"><!--[if lte IE 11]><div class="warning">This old browser is unsupported and will most likely display funky things.</div><![endif]--><nav class="mobile-topbar"><button class="sidebar-menu-toggle">&#9776;</button><a class="sidebar-logo" href="../../../../boa_engine/index.html"><div class="logo-container"><img src="https://raw.githubusercontent.com/boa-dev/boa/main/assets/logo.svg" alt="logo"></div>
-        </a><h2 class="location"></h2>
-    </nav>
-    <nav class="sidebar"><a class="sidebar-logo" href="../../../../boa_engine/index.html"><div class="logo-container">
-                    <img src="https://raw.githubusercontent.com/boa-dev/boa/main/assets/logo.svg" alt="logo"></div>
-        </a></nav><main><div class="width-limiter"><div class="sub-container"><a class="sub-logo-container" href="../../../../boa_engine/index.html">
-                        <img src="https://raw.githubusercontent.com/boa-dev/boa/main/assets/logo.svg" alt="logo"></a><nav class="sub"><div class="theme-picker hidden"><button id="theme-picker" aria-label="Pick another theme!" aria-haspopup="menu" title="themes"><img width="22" height="22" alt="Pick another theme!" src="../../../../brush.svg"></button><div id="theme-choices" role="menu"></div></div><form class="search-form"><div class="search-container"><span></span><input class="search-input" name="search" autocomplete="off" spellcheck="false" placeholder="Click or press ‘S’ to search, ‘?’ for more options…" type="search"><button type="button" id="help-button" title="help">?</button><a id="settings-menu" href="../../../../settings.html" title="settings"><img width="22" height="22" alt="Change settings" src="../../../../wheel.svg"></a></div></form></nav></div><section id="main-content" class="content"><div class="example-wrap"><pre class="line-numbers"><span id="1">1</span>
+<!DOCTYPE html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1.0"><meta name="generator" content="rustdoc"><meta name="description" content="Source of the Rust file `boa_engine/src/builtins/eval/mod.rs`."><meta name="keywords" content="rust, rustlang, rust-lang"><title>mod.rs - source</title><link rel="preload" as="font" type="font/woff2" crossorigin href="../../../../SourceSerif4-Regular.ttf.woff2"><link rel="preload" as="font" type="font/woff2" crossorigin href="../../../../FiraSans-Regular.woff2"><link rel="preload" as="font" type="font/woff2" crossorigin href="../../../../FiraSans-Medium.woff2"><link rel="preload" as="font" type="font/woff2" crossorigin href="../../../../SourceCodePro-Regular.ttf.woff2"><link rel="preload" as="font" type="font/woff2" crossorigin href="../../../../SourceSerif4-Bold.ttf.woff2"><link rel="preload" as="font" type="font/woff2" crossorigin href="../../../../SourceCodePro-Semibold.ttf.woff2"><link rel="stylesheet" href="../../../../normalize.css"><link rel="stylesheet" href="../../../../rustdoc.css" id="mainThemeStyle"><link rel="stylesheet" href="../../../../ayu.css" disabled><link rel="stylesheet" href="../../../../dark.css" disabled><link rel="stylesheet" href="../../../../light.css" id="themeStyle"><script id="default-settings" ></script><script src="../../../../storage.js"></script><script defer src="../../../../source-script.js"></script><script defer src="../../../../source-files.js"></script><script defer src="../../../../main.js"></script><noscript><link rel="stylesheet" href="../../../../noscript.css"></noscript><link rel="icon" href="https://raw.githubusercontent.com/boa-dev/boa/main/assets/logo.svg"></head><body class="rustdoc source"><!--[if lte IE 11]><div class="warning">This old browser is unsupported and will most likely display funky things.</div><![endif]--><nav class="mobile-topbar"><button class="sidebar-menu-toggle">&#9776;</button><a class="sidebar-logo" href="../../../../boa_engine/index.html"><div class="logo-container"><img src="https://raw.githubusercontent.com/boa-dev/boa/main/assets/logo.svg" alt="logo"></div></a><h2 class="location"></h2></nav><nav class="sidebar"><a class="sidebar-logo" href="../../../../boa_engine/index.html"><div class="logo-container">
+                    <img src="https://raw.githubusercontent.com/boa-dev/boa/main/assets/logo.svg" alt="logo"></div></a></nav><main><div class="width-limiter"><div class="sub-container"><a class="sub-logo-container" href="../../../../boa_engine/index.html">
+                        <img src="https://raw.githubusercontent.com/boa-dev/boa/main/assets/logo.svg" alt="logo"></a><nav class="sub"><form class="search-form"><div class="search-container"><span></span><input class="search-input" name="search" autocomplete="off" spellcheck="false" placeholder="Click or press ‘S’ to search, ‘?’ for more options…" type="search"><div id="help-button" title="help" tabindex="-1"><button type="button">?</button></div><div id="settings-menu" tabindex="-1"><a href="../../../../settings.html" title="settings"><img width="22" height="22" alt="Change settings" src="../../../../wheel.svg"></a></div></div></form></nav></div><section id="main-content" class="content"><div class="example-wrap"><pre class="line-numbers"><span id="1">1</span>
 <span id="2">2</span>
 <span id="3">3</span>
 <span id="4">4</span>
@@ -154,155 +149,392 @@
 <span id="147">147</span>
 <span id="148">148</span>
 <span id="149">149</span>
-</pre><pre class="rust"><code><span class="doccomment">//! This module implements the global `eval` function.</span>
-<span class="doccomment">//!</span>
-<span class="doccomment">//! The `eval()` function evaluates JavaScript code represented as a string.</span>
-<span class="doccomment">//!</span>
-<span class="doccomment">//! More information:</span>
-<span class="doccomment">//!  - [ECMAScript reference][spec]</span>
-<span class="doccomment">//!  - [MDN documentation][mdn]</span>
-<span class="doccomment">//!</span>
-<span class="doccomment">//! [spec]: https://tc39.es/ecma262/#sec-eval-x</span>
-<span class="doccomment">//! [mdn]: https://developer.mozilla.org/en-US/docs/Web/JavaScript/Reference/Global_Objects/eval</span>
+<span id="150">150</span>
+<span id="151">151</span>
+<span id="152">152</span>
+<span id="153">153</span>
+<span id="154">154</span>
+<span id="155">155</span>
+<span id="156">156</span>
+<span id="157">157</span>
+<span id="158">158</span>
+<span id="159">159</span>
+<span id="160">160</span>
+<span id="161">161</span>
+<span id="162">162</span>
+<span id="163">163</span>
+<span id="164">164</span>
+<span id="165">165</span>
+<span id="166">166</span>
+<span id="167">167</span>
+<span id="168">168</span>
+<span id="169">169</span>
+<span id="170">170</span>
+<span id="171">171</span>
+<span id="172">172</span>
+<span id="173">173</span>
+<span id="174">174</span>
+<span id="175">175</span>
+<span id="176">176</span>
+<span id="177">177</span>
+<span id="178">178</span>
+<span id="179">179</span>
+<span id="180">180</span>
+<span id="181">181</span>
+<span id="182">182</span>
+<span id="183">183</span>
+<span id="184">184</span>
+<span id="185">185</span>
+<span id="186">186</span>
+<span id="187">187</span>
+<span id="188">188</span>
+<span id="189">189</span>
+<span id="190">190</span>
+<span id="191">191</span>
+<span id="192">192</span>
+<span id="193">193</span>
+<span id="194">194</span>
+<span id="195">195</span>
+<span id="196">196</span>
+<span id="197">197</span>
+<span id="198">198</span>
+<span id="199">199</span>
+<span id="200">200</span>
+<span id="201">201</span>
+<span id="202">202</span>
+<span id="203">203</span>
+<span id="204">204</span>
+<span id="205">205</span>
+<span id="206">206</span>
+<span id="207">207</span>
+<span id="208">208</span>
+<span id="209">209</span>
+<span id="210">210</span>
+<span id="211">211</span>
+<span id="212">212</span>
+<span id="213">213</span>
+<span id="214">214</span>
+<span id="215">215</span>
+<span id="216">216</span>
+<span id="217">217</span>
+<span id="218">218</span>
+<span id="219">219</span>
+<span id="220">220</span>
+<span id="221">221</span>
+<span id="222">222</span>
+<span id="223">223</span>
+<span id="224">224</span>
+<span id="225">225</span>
+<span id="226">226</span>
+<span id="227">227</span>
+<span id="228">228</span>
+<span id="229">229</span>
+<span id="230">230</span>
+<span id="231">231</span>
+<span id="232">232</span>
+<span id="233">233</span>
+<span id="234">234</span>
+<span id="235">235</span>
+<span id="236">236</span>
+<span id="237">237</span>
+<span id="238">238</span>
+<span id="239">239</span>
+<span id="240">240</span>
+<span id="241">241</span>
+<span id="242">242</span>
+<span id="243">243</span>
+<span id="244">244</span>
+<span id="245">245</span>
+<span id="246">246</span>
+<span id="247">247</span>
+<span id="248">248</span>
+<span id="249">249</span>
+<span id="250">250</span>
+<span id="251">251</span>
+<span id="252">252</span>
+<span id="253">253</span>
+<span id="254">254</span>
+<span id="255">255</span>
+<span id="256">256</span>
+<span id="257">257</span>
+<span id="258">258</span>
+<span id="259">259</span>
+<span id="260">260</span>
+<span id="261">261</span>
+<span id="262">262</span>
+<span id="263">263</span>
+<span id="264">264</span>
+<span id="265">265</span>
+<span id="266">266</span>
+<span id="267">267</span>
+<span id="268">268</span>
+</pre><pre class="rust"><code><span class="doccomment">//! This module implements the global `eval` function.
+//!
+//! The `eval()` function evaluates JavaScript code represented as a string.
+//!
+//! More information:
+//!  - [ECMAScript reference][spec]
+//!  - [MDN documentation][mdn]
+//!
+//! [spec]: https://tc39.es/ecma262/#sec-eval-x
+//! [mdn]: https://developer.mozilla.org/en-US/docs/Web/JavaScript/Reference/Global_Objects/eval
 
-<span class="kw">use</span> <span class="kw">crate</span>::{
-    <span class="ident">builtins</span>::{<span class="ident">BuiltIn</span>, <span class="ident">JsArgs</span>},
-    <span class="ident">object::FunctionBuilder</span>,
-    <span class="ident">property::Attribute</span>,
-    <span class="ident">Context</span>, <span class="ident">JsValue</span>,
+</span><span class="kw">use crate</span>::{
+    builtins::{BuiltIn, JsArgs},
+    environments::DeclarativeEnvironment,
+    error::JsNativeError,
+    object::FunctionBuilder,
+    property::Attribute,
+    Context, JsResult, JsString, JsValue,
 };
-<span class="kw">use</span> <span class="ident">boa_profiler::Profiler</span>;
-<span class="kw">use</span> <span class="ident">rustc_hash::FxHashSet</span>;
+<span class="kw">use </span>boa_ast::operations::{
+    contains, contains_arguments, top_level_var_declared_names, ContainsSymbol,
+};
+<span class="kw">use </span>boa_gc::Gc;
+<span class="kw">use </span>boa_parser::Parser;
+<span class="kw">use </span>boa_profiler::Profiler;
 
-<span class="attribute">#[<span class="ident">derive</span>(<span class="ident">Debug</span>, <span class="ident">Clone</span>, <span class="ident">Copy</span>)]</span>
-<span class="kw">pub</span>(<span class="kw">crate</span>) <span class="kw">struct</span> <span class="ident">Eval</span>;
+<span class="attribute">#[derive(Debug, Clone, Copy)]
+</span><span class="kw">pub</span>(<span class="kw">crate</span>) <span class="kw">struct </span>Eval;
 
-<span class="kw">impl</span> <span class="ident">BuiltIn</span> <span class="kw">for</span> <span class="ident">Eval</span> {
-    <span class="kw">const</span> <span class="ident">NAME</span>: <span class="kw-2">&amp;</span><span class="lifetime">&#39;static</span> <span class="ident">str</span> <span class="op">=</span> <span class="string">&quot;eval&quot;</span>;
+<span class="kw">impl </span>BuiltIn <span class="kw">for </span>Eval {
+    <span class="kw">const </span>NAME: <span class="kw-2">&amp;</span><span class="lifetime">&#39;static </span>str = <span class="string">&quot;eval&quot;</span>;
 
-    <span class="kw">const</span> <span class="ident">ATTRIBUTE</span>: <span class="ident">Attribute</span> <span class="op">=</span> <span class="ident">Attribute::CONFIGURABLE</span>
-        .<span class="ident">union</span>(<span class="ident">Attribute::NON_ENUMERABLE</span>)
-        .<span class="ident">union</span>(<span class="ident">Attribute::WRITABLE</span>);
+    <span class="kw">const </span>ATTRIBUTE: Attribute = Attribute::CONFIGURABLE
+        .union(Attribute::NON_ENUMERABLE)
+        .union(Attribute::WRITABLE);
 
-    <span class="kw">fn</span> <span class="ident">init</span>(<span class="ident">context</span>: <span class="kw-2">&amp;mut</span> <span class="ident">Context</span>) -&gt; <span class="prelude-ty">Option</span><span class="op">&lt;</span><span class="ident">JsValue</span><span class="op">&gt;</span> {
-        <span class="kw">let</span> <span class="ident">_timer</span> <span class="op">=</span> <span class="ident">Profiler::global</span>().<span class="ident">start_event</span>(<span class="ident"><span class="self">Self</span>::NAME</span>, <span class="string">&quot;init&quot;</span>);
+    <span class="kw">fn </span>init(context: <span class="kw-2">&amp;mut </span>Context) -&gt; <span class="prelude-ty">Option</span>&lt;JsValue&gt; {
+        <span class="kw">let </span>_timer = Profiler::global().start_event(<span class="self">Self</span>::NAME, <span class="string">&quot;init&quot;</span>);
 
-        <span class="kw">let</span> <span class="ident">object</span> <span class="op">=</span> <span class="ident">FunctionBuilder::native</span>(<span class="ident">context</span>, <span class="ident"><span class="self">Self</span>::eval</span>)
-            .<span class="ident">name</span>(<span class="string">&quot;eval&quot;</span>)
-            .<span class="ident">length</span>(<span class="number">1</span>)
-            .<span class="ident">constructor</span>(<span class="bool-val">false</span>)
-            .<span class="ident">build</span>();
+        <span class="kw">let </span>object = FunctionBuilder::native(context, <span class="self">Self</span>::eval)
+            .name(<span class="string">&quot;eval&quot;</span>)
+            .length(<span class="number">1</span>)
+            .constructor(<span class="bool-val">false</span>)
+            .build();
 
-        <span class="prelude-val">Some</span>(<span class="ident">object</span>.<span class="ident">into</span>())
+        <span class="prelude-val">Some</span>(object.into())
     }
 }
 
-<span class="kw">impl</span> <span class="ident">Eval</span> {
-    <span class="doccomment">/// `19.2.1 eval ( x )`</span>
-    <span class="doccomment">///</span>
-    <span class="doccomment">/// More information:</span>
-    <span class="doccomment">///  - [ECMAScript reference][spec]</span>
-    <span class="doccomment">///</span>
-    <span class="doccomment">/// [spec]: https://tc39.es/ecma262/#sec-eval-x</span>
-    <span class="kw">fn</span> <span class="ident">eval</span>(<span class="kw">_</span>: <span class="kw-2">&amp;</span><span class="ident">JsValue</span>, <span class="ident">args</span>: <span class="kw-2">&amp;</span>[<span class="ident">JsValue</span>], <span class="ident">context</span>: <span class="kw-2">&amp;mut</span> <span class="ident">Context</span>) -&gt; <span class="prelude-ty">Result</span><span class="op">&lt;</span><span class="ident">JsValue</span>, <span class="ident">JsValue</span><span class="op">&gt;</span> {
-        <span class="comment">// 1. Return ? PerformEval(x, false, false).</span>
-        <span class="ident"><span class="self">Self</span>::perform_eval</span>(<span class="ident">args</span>.<span class="ident">get_or_undefined</span>(<span class="number">0</span>), <span class="bool-val">false</span>, <span class="bool-val">false</span>, <span class="ident">context</span>)
+<span class="kw">impl </span>Eval {
+    <span class="doccomment">/// `19.2.1 eval ( x )`
+    ///
+    /// More information:
+    ///  - [ECMAScript reference][spec]
+    ///
+    /// [spec]: https://tc39.es/ecma262/#sec-eval-x
+    </span><span class="kw">fn </span>eval(<span class="kw">_</span>: <span class="kw-2">&amp;</span>JsValue, args: <span class="kw-2">&amp;</span>[JsValue], context: <span class="kw-2">&amp;mut </span>Context) -&gt; JsResult&lt;JsValue&gt; {
+        <span class="comment">// 1. Return ? PerformEval(x, false, false).
+        </span><span class="self">Self</span>::perform_eval(args.get_or_undefined(<span class="number">0</span>), <span class="bool-val">false</span>, <span class="bool-val">false</span>, context)
     }
 
-    <span class="doccomment">/// `19.2.1.1 PerformEval ( x, strictCaller, direct )`</span>
-    <span class="doccomment">///</span>
-    <span class="doccomment">/// More information:</span>
-    <span class="doccomment">///  - [ECMAScript reference][spec]</span>
-    <span class="doccomment">///</span>
-    <span class="doccomment">/// [spec]: https://tc39.es/ecma262/#sec-performeval</span>
-    <span class="kw">pub</span>(<span class="kw">crate</span>) <span class="kw">fn</span> <span class="ident">perform_eval</span>(
-        <span class="ident">x</span>: <span class="kw-2">&amp;</span><span class="ident">JsValue</span>,
-        <span class="ident">direct</span>: <span class="ident">bool</span>,
-        <span class="ident">strict</span>: <span class="ident">bool</span>,
-        <span class="ident">context</span>: <span class="kw-2">&amp;mut</span> <span class="ident">Context</span>,
-    ) -&gt; <span class="prelude-ty">Result</span><span class="op">&lt;</span><span class="ident">JsValue</span>, <span class="ident">JsValue</span><span class="op">&gt;</span> {
-        <span class="comment">// 1. Assert: If direct is false, then strictCaller is also false.</span>
-        <span class="kw">if</span> <span class="op">!</span><span class="ident">direct</span> {
-            <span class="macro">debug_assert!</span>(<span class="op">!</span><span class="ident">strict</span>);
+    <span class="doccomment">/// `19.2.1.1 PerformEval ( x, strictCaller, direct )`
+    ///
+    /// More information:
+    ///  - [ECMAScript reference][spec]
+    ///
+    /// [spec]: https://tc39.es/ecma262/#sec-performeval
+    </span><span class="kw">pub</span>(<span class="kw">crate</span>) <span class="kw">fn </span>perform_eval(
+        x: <span class="kw-2">&amp;</span>JsValue,
+        direct: bool,
+        <span class="kw-2">mut </span>strict: bool,
+        context: <span class="kw-2">&amp;mut </span>Context,
+    ) -&gt; JsResult&lt;JsValue&gt; {
+        <span class="macro">bitflags::bitflags! </span>{
+            <span class="doccomment">/// Flags used to throw early errors on invalid `eval` calls.
+            </span><span class="attribute">#[derive(Default)]
+            </span><span class="kw">struct </span>Flags: u8 {
+                <span class="kw">const </span>IN_FUNCTION = <span class="number">0b0001</span>;
+                <span class="kw">const </span>IN_METHOD = <span class="number">0b0010</span>;
+                <span class="kw">const </span>IN_DERIVED_CONSTRUCTOR = <span class="number">0b0100</span>;
+                <span class="kw">const </span>IN_CLASS_FIELD_INITIALIZER = <span class="number">0b1000</span>;
+            }
         }
 
-        <span class="comment">// 2. If Type(x) is not String, return x.</span>
-        <span class="kw">let</span> <span class="ident">x</span> <span class="op">=</span> <span class="kw">if</span> <span class="kw">let</span> <span class="prelude-val">Some</span>(<span class="ident">x</span>) <span class="op">=</span> <span class="ident">x</span>.<span class="ident">as_string</span>() {
-            <span class="ident">x</span>.<span class="ident">clone</span>()
-        } <span class="kw">else</span> {
-            <span class="kw">return</span> <span class="prelude-val">Ok</span>(<span class="ident">x</span>.<span class="ident">clone</span>());
+        <span class="doccomment">/// Possible actions that can be executed after exiting this function to restore the environment to its
+        /// original state.
+        </span><span class="attribute">#[derive(Debug)]
+        </span><span class="kw">enum </span>EnvStackAction {
+            Truncate(usize),
+            Restore(Vec&lt;Gc&lt;DeclarativeEnvironment&gt;&gt;),
+        }
+
+        <span class="doccomment">/// Restores the environment after calling `eval` or after throwing an error.
+        </span><span class="kw">fn </span>restore_environment(context: <span class="kw-2">&amp;mut </span>Context, action: EnvStackAction) {
+            <span class="kw">match </span>action {
+                EnvStackAction::Truncate(size) =&gt; {
+                    context.realm.environments.truncate(size);
+                }
+                EnvStackAction::Restore(envs) =&gt; {
+                    <span class="comment">// Pop all environments created during the eval execution and restore the original stack.
+                    </span>context.realm.environments.truncate(<span class="number">1</span>);
+                    context.realm.environments.extend(envs);
+                }
+            }
+        }
+
+        <span class="comment">// 1. Assert: If direct is false, then strictCaller is also false.
+        </span><span class="macro">debug_assert!</span>(direct || !strict);
+
+        <span class="comment">// 2. If Type(x) is not String, return x.
+        // TODO: rework parser to take an iterator of `u32` unicode codepoints
+        </span><span class="kw">let </span><span class="prelude-val">Some</span>(x) = x.as_string().map(JsString::to_std_string_escaped) <span class="kw">else </span>{
+            <span class="kw">return </span><span class="prelude-val">Ok</span>(x.clone());
         };
 
-        <span class="comment">// Because of implementation details the following code differs from the spec.</span>
+        <span class="comment">// Because of implementation details the following code differs from the spec.
 
-        <span class="comment">// Parse the script body and handle early errors (6 - 11)</span>
-        <span class="kw">let</span> <span class="ident">body</span> <span class="op">=</span> <span class="kw">match</span> <span class="ident">context</span>.<span class="ident">parse_eval</span>(<span class="ident">x</span>.<span class="ident">as_bytes</span>(), <span class="ident">direct</span>, <span class="ident">strict</span>) {
-            <span class="prelude-val">Ok</span>(<span class="ident">body</span>) =&gt; <span class="ident">body</span>,
-            <span class="prelude-val">Err</span>(<span class="ident">e</span>) =&gt; <span class="kw">return</span> <span class="ident">context</span>.<span class="ident">throw_syntax_error</span>(<span class="ident">e</span>.<span class="ident">to_string</span>()),
+        // 5. Perform ? HostEnsureCanCompileStrings(evalRealm).
+        </span><span class="kw">let </span><span class="kw-2">mut </span>parser = Parser::new(x.as_bytes());
+        <span class="kw">if </span>strict {
+            parser.set_strict();
+        }
+        <span class="comment">// 11. Perform the following substeps in an implementation-defined order, possibly interleaving parsing and error detection:
+        //     a. Let script be ParseText(StringToCodePoints(x), Script).
+        //     b. If script is a List of errors, throw a SyntaxError exception.
+        //     c. If script Contains ScriptBody is false, return undefined.
+        //     d. Let body be the ScriptBody of script.
+        </span><span class="kw">let </span>body = parser.parse_eval(direct, context.interner_mut())<span class="question-mark">?</span>;
+
+        <span class="comment">// 6. Let inFunction be false.
+        // 7. Let inMethod be false.
+        // 8. Let inDerivedConstructor be false.
+        // 9. Let inClassFieldInitializer be false.
+        // a. Let thisEnvRec be GetThisEnvironment().
+        </span><span class="kw">let </span>flags = <span class="kw">match </span>context
+            .realm
+            .environments
+            .get_this_environment()
+            .as_function_slots()
+        {
+            <span class="comment">// 10. If direct is true, then
+            //     b. If thisEnvRec is a Function Environment Record, then
+            </span><span class="prelude-val">Some</span>(function_env) <span class="kw">if </span>direct =&gt; {
+                <span class="kw">let </span>function_env = function_env.borrow();
+                <span class="comment">// i. Let F be thisEnvRec.[[FunctionObject]].
+                </span><span class="kw">let </span>function_object = function_env.function_object().borrow();
+
+                <span class="comment">// ii. Set inFunction to true.
+                </span><span class="kw">let </span><span class="kw-2">mut </span>flags = Flags::IN_FUNCTION;
+
+                <span class="comment">// iii. Set inMethod to thisEnvRec.HasSuperBinding().
+                </span><span class="kw">if </span>function_env.has_super_binding() {
+                    flags |= Flags::IN_METHOD;
+                }
+
+                <span class="comment">// iv. If F.[[ConstructorKind]] is derived, set inDerivedConstructor to true.
+                </span><span class="kw">if </span>function_object
+                    .as_function()
+                    .expect(<span class="string">&quot;must be function object&quot;</span>)
+                    .is_derived_constructor()
+                {
+                    flags |= Flags::IN_DERIVED_CONSTRUCTOR;
+                }
+
+                <span class="comment">// TODO:
+                // v. Let classFieldInitializerName be F.[[ClassFieldInitializerName]].
+                // vi. If classFieldInitializerName is not empty, set inClassFieldInitializer to true.
+
+                </span>flags
+            }
+            <span class="kw">_ </span>=&gt; Flags::default(),
         };
 
-        <span class="comment">// 12 - 13 are implicit in the call of `Context::compile_with_new_declarative`.</span>
+        <span class="kw">if </span>!flags.contains(Flags::IN_FUNCTION) &amp;&amp; contains(<span class="kw-2">&amp;</span>body, ContainsSymbol::NewTarget) {
+            <span class="kw">return </span><span class="prelude-val">Err</span>(JsNativeError::syntax()
+                .with_message(<span class="string">&quot;invalid `new.target` expression inside eval&quot;</span>)
+                .into());
+        }
+        <span class="kw">if </span>!flags.contains(Flags::IN_METHOD) &amp;&amp; contains(<span class="kw-2">&amp;</span>body, ContainsSymbol::SuperProperty) {
+            <span class="kw">return </span><span class="prelude-val">Err</span>(JsNativeError::syntax()
+                .with_message(<span class="string">&quot;invalid `super` reference inside eval&quot;</span>)
+                .into());
+        }
+        <span class="kw">if </span>!flags.contains(Flags::IN_DERIVED_CONSTRUCTOR)
+            &amp;&amp; contains(<span class="kw-2">&amp;</span>body, ContainsSymbol::SuperCall)
+        {
+            <span class="kw">return </span><span class="prelude-val">Err</span>(JsNativeError::syntax()
+                .with_message(<span class="string">&quot;invalid `super` call inside eval&quot;</span>)
+                .into());
+        }
+        <span class="kw">if </span>flags.contains(Flags::IN_CLASS_FIELD_INITIALIZER) &amp;&amp; contains_arguments(<span class="kw-2">&amp;</span>body) {
+            <span class="kw">return </span><span class="prelude-val">Err</span>(JsNativeError::syntax()
+                .with_message(<span class="string">&quot;invalid `arguments` reference inside eval&quot;</span>)
+                .into());
+        }
 
-        <span class="comment">// Because our environment model does not map directly to the spec this section looks very different.</span>
-        <span class="comment">// 14 - 33 are in the following section, together with EvalDeclarationInstantiation.</span>
-        <span class="kw">if</span> <span class="ident">direct</span> {
-            <span class="comment">// If the call to eval is direct, the code is executed in the current environment.</span>
+        strict |= body.strict();
 
-            <span class="comment">// Poison the current environment, because it may contain new declarations after/during eval.</span>
-            <span class="ident">context</span>.<span class="ident">realm</span>.<span class="ident">environments</span>.<span class="ident">poison_current</span>();
+        <span class="comment">// Because our environment model does not map directly to the spec, this section looks very different.
+        // 12 - 13 are implicit in the call of `Context::compile_with_new_declarative`.
+        // 14 - 33 are in the following section, together with EvalDeclarationInstantiation.
+        </span><span class="kw">let </span>action = <span class="kw">if </span>direct {
+            <span class="comment">// If the call to eval is direct, the code is executed in the current environment.
 
-            <span class="comment">// Set the compile time environment to the current running environment and save the number of current environments.</span>
-            <span class="ident">context</span>.<span class="ident">realm</span>.<span class="ident">compile_env</span> <span class="op">=</span> <span class="ident">context</span>.<span class="ident">realm</span>.<span class="ident">environments</span>.<span class="ident">current_compile_environment</span>();
-            <span class="kw">let</span> <span class="ident">environments_len</span> <span class="op">=</span> <span class="ident">context</span>.<span class="ident">realm</span>.<span class="ident">environments</span>.<span class="ident">len</span>();
-
-            <span class="comment">// Error if any var declaration in the eval code already exists as a let/const declaration in the current running environment.</span>
-            <span class="kw">let</span> <span class="kw-2">mut</span> <span class="ident">vars</span> <span class="op">=</span> <span class="ident">FxHashSet::default</span>();
-            <span class="ident">body</span>.<span class="ident">var_declared_names_new</span>(<span class="kw-2">&amp;mut</span> <span class="ident">vars</span>);
-            <span class="kw">if</span> <span class="kw">let</span> <span class="prelude-val">Some</span>(<span class="ident">name</span>) <span class="op">=</span> <span class="ident">context</span>
-                .<span class="ident">realm</span>
-                .<span class="ident">environments</span>
-                .<span class="ident">has_lex_binding_until_function_environment</span>(<span class="kw-2">&amp;</span><span class="ident">vars</span>)
-            {
-                <span class="kw">let</span> <span class="ident">name</span> <span class="op">=</span> <span class="ident">context</span>.<span class="ident">interner</span>().<span class="ident">resolve_expect</span>(<span class="ident">name</span>);
-                <span class="kw">let</span> <span class="ident">msg</span> <span class="op">=</span> <span class="macro">format!</span>(<span class="string">&quot;variable declaration {name} in eval function already exists as lexically declaration&quot;</span>);
-                <span class="kw">return</span> <span class="ident">context</span>.<span class="ident">throw_syntax_error</span>(<span class="ident">msg</span>);
+            // Poison the current environment, because it may contain new declarations after/during eval.
+            </span><span class="kw">if </span>!strict {
+                context.realm.environments.poison_current();
             }
 
-            <span class="comment">// Compile and execute the eval statement list.</span>
-            <span class="kw">let</span> <span class="ident">code_block</span> <span class="op">=</span> <span class="ident">context</span>.<span class="ident">compile_with_new_declarative</span>(<span class="kw-2">&amp;</span><span class="ident">body</span>, <span class="ident">strict</span>)<span class="question-mark">?</span>;
-            <span class="ident">context</span>
-                .<span class="ident">realm</span>
-                .<span class="ident">environments</span>
-                .<span class="ident">extend_outer_function_environment</span>();
-            <span class="kw">let</span> <span class="ident">result</span> <span class="op">=</span> <span class="ident">context</span>.<span class="ident">execute</span>(<span class="ident">code_block</span>);
+            <span class="comment">// Set the compile time environment to the current running environment and save the number of current environments.
+            </span>context.realm.compile_env = context.realm.environments.current_compile_environment();
+            <span class="kw">let </span>environments_len = context.realm.environments.len();
 
-            <span class="comment">// Pop any added runtime environments that where not removed during the eval execution.</span>
-            <span class="ident">context</span>.<span class="ident">realm</span>.<span class="ident">environments</span>.<span class="ident">truncate</span>(<span class="ident">environments_len</span>);
+            <span class="comment">// Pop any added runtime environments that were not removed during the eval execution.
+            </span>EnvStackAction::Truncate(environments_len)
+        } <span class="kw">else </span>{
+            <span class="comment">// If the call to eval is indirect, the code is executed in the global environment.
 
-            <span class="ident">result</span>
-        } <span class="kw">else</span> {
-            <span class="comment">// If the call to eval is indirect, the code is executed in the global environment.</span>
+            // Poison all environments, because the global environment may contain new declarations after/during eval.
+            </span><span class="kw">if </span>!strict {
+                context.realm.environments.poison_all();
+            }
 
-            <span class="comment">// Poison all environments, because the global environment may contain new declarations after/during eval.</span>
-            <span class="ident">context</span>.<span class="ident">realm</span>.<span class="ident">environments</span>.<span class="ident">poison_all</span>();
+            <span class="comment">// Pop all environments before the eval execution.
+            </span><span class="kw">let </span>environments = context.realm.environments.pop_to_global();
+            context.realm.compile_env = context.realm.environments.current_compile_environment();
 
-            <span class="comment">// Pop all environments before the eval execution.</span>
-            <span class="kw">let</span> <span class="ident">environments</span> <span class="op">=</span> <span class="ident">context</span>.<span class="ident">realm</span>.<span class="ident">environments</span>.<span class="ident">pop_to_global</span>();
-            <span class="kw">let</span> <span class="ident">environments_len</span> <span class="op">=</span> <span class="ident">context</span>.<span class="ident">realm</span>.<span class="ident">environments</span>.<span class="ident">len</span>();
-            <span class="ident">context</span>.<span class="ident">realm</span>.<span class="ident">compile_env</span> <span class="op">=</span> <span class="ident">context</span>.<span class="ident">realm</span>.<span class="ident">environments</span>.<span class="ident">current_compile_environment</span>();
+            <span class="comment">// Restore all environments to the state from before the eval execution.
+            </span>EnvStackAction::Restore(environments)
+        };
 
-            <span class="comment">// Compile and execute the eval statement list.</span>
-            <span class="kw">let</span> <span class="ident">code_block</span> <span class="op">=</span> <span class="ident">context</span>.<span class="ident">compile_with_new_declarative</span>(<span class="kw-2">&amp;</span><span class="ident">body</span>, <span class="bool-val">false</span>)<span class="question-mark">?</span>;
-            <span class="kw">let</span> <span class="ident">result</span> <span class="op">=</span> <span class="ident">context</span>.<span class="ident">execute</span>(<span class="ident">code_block</span>);
-
-            <span class="comment">// Restore all environments to the state from before the eval execution.</span>
-            <span class="ident">context</span>.<span class="ident">realm</span>.<span class="ident">environments</span>.<span class="ident">truncate</span>(<span class="ident">environments_len</span>);
-            <span class="ident">context</span>.<span class="ident">realm</span>.<span class="ident">environments</span>.<span class="ident">extend</span>(<span class="ident">environments</span>);
-
-            <span class="ident">result</span>
+        <span class="comment">// Only need to check on non-strict mode since strict mode automatically creates a function
+        // environment for all eval calls.
+        </span><span class="kw">if </span>!strict {
+            <span class="comment">// Error if any var declaration in the eval code already exists as a let/const declaration in the current running environment.
+            </span><span class="kw">if let </span><span class="prelude-val">Some</span>(name) = context
+                .realm
+                .environments
+                .has_lex_binding_until_function_environment(<span class="kw-2">&amp;</span>top_level_var_declared_names(<span class="kw-2">&amp;</span>body))
+            {
+                restore_environment(context, action);
+                <span class="kw">let </span>name = context.interner().resolve_expect(name.sym());
+                <span class="kw">let </span>msg = <span class="macro">format!</span>(<span class="string">&quot;variable declaration {name} in eval function already exists as a lexical variable&quot;</span>);
+                <span class="kw">return </span><span class="prelude-val">Err</span>(JsNativeError::syntax().with_message(msg).into());
+            }
         }
+
+        <span class="comment">// TODO: check if private identifiers inside `eval` are valid.
+
+        // Compile and execute the eval statement list.
+        </span><span class="kw">let </span>code_block = context.compile_with_new_declarative(<span class="kw-2">&amp;</span>body, strict)<span class="question-mark">?</span>;
+        <span class="comment">// Indirect calls don&#39;t need extensions, because a non-strict indirect call modifies only
+        // the global object.
+        // Strict direct calls also don&#39;t need extensions, since all strict eval calls push a new
+        // function environment before evaluating.
+        </span><span class="kw">if </span>direct &amp;&amp; !strict {
+            context
+                .realm
+                .environments
+                .extend_outer_function_environment();
+        }
+        <span class="kw">let </span>result = context.execute(code_block);
+
+        restore_environment(context, action);
+
+        result
     }
 }
 </code></pre></div>
-</section></div></main><div id="rustdoc-vars" data-root-path="../../../../" data-current-crate="boa_engine" data-themes="ayu,dark,light" data-resource-suffix="" data-rustdoc-version="1.62.0 (a8314ef7d 2022-06-27)" ></div>
-</body></html>
+</section></div></main><div id="rustdoc-vars" data-root-path="../../../../" data-current-crate="boa_engine" data-themes="ayu,dark,light" data-resource-suffix="" data-rustdoc-version="1.65.0 (897e37553 2022-11-02)" ></div></body></html>
