@@ -1,1 +1,1 @@
-window.SIDEBAR_ITEMS = {"struct":[["TryFromCharError",""]],"trait":[["IntoOrUndefined",""]]};
+window.SIDEBAR_ITEMS = {"mod":["serde_json","try_from_js"],"trait":["IntoOrUndefined"]};

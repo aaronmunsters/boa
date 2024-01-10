@@ -1,1 +1,1 @@
-window.SIDEBAR_ITEMS = {"enum":[["IntegerOrInfinity","Represents the result of `ToIntegerOrInfinity` operation"]]};
+window.SIDEBAR_ITEMS = {"enum":["IntegerOrInfinity","IntegerOrNan"]};

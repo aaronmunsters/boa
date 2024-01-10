@@ -1,1 +1,1 @@
-window.SIDEBAR_ITEMS = {"mod":[["array_iterator",""]],"struct":[["Array","JavaScript `Array` built-in implementation."]]};
+window.SIDEBAR_ITEMS = {"enum":["Direction"],"fn":["array_exotic_define_own_property","array_set_length","compare_array_elements","find_via_predicate"],"mod":["array_iterator"],"static":["ARRAY_EXOTIC_INTERNAL_METHODS"],"struct":["Array"]};

@@ -1,1 +1,1 @@
-window.SIDEBAR_ITEMS = {"struct":[["SetName","`SetName` implements the Opcode Operation for `Opcode::SetName`"]]};
+window.SIDEBAR_ITEMS = {"fn":["verify_initialized"],"struct":["SetName","SetNameByLocator","ThrowMutateImmutable"]};

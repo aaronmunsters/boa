@@ -1,1 +1,1 @@
-window.SIDEBAR_ITEMS = {"struct":[["OrderedSet","A type wrapping `indexmap::IndexSet`"]]};
+window.SIDEBAR_ITEMS = {"struct":["OrderedSet","SetLock"]};

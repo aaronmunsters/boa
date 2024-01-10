@@ -1,1 +1,1 @@
-window.SIDEBAR_ITEMS = {"struct":[["DataView",""]]};
+window.SIDEBAR_ITEMS = {"struct":["DataView"]};

@@ -1,1 +1,1 @@
-window.SIDEBAR_ITEMS = {"struct":[["ValueNotNullOrUndefined","`ValueNotNullOrUndefined` implements the Opcode Operation for `Opcode::ValueNotNullOrUndefined`"]]};
+window.SIDEBAR_ITEMS = {"struct":["IsObject","ValueNotNullOrUndefined"]};

@@ -1,1 +1,1 @@
-window.SIDEBAR_ITEMS = {"enum":[["PromiseState",""],["ReactionType",""]],"macro":[["if_abrupt_reject_promise","`IfAbruptRejectPromise ( value, capability )`"]],"mod":[["promise_job",""]],"struct":[["Promise",""],["PromiseCapability",""],["ReactionRecord",""],["ResolvingFunctionsRecord",""]]};
+window.SIDEBAR_ITEMS = {"enum":["OperationType","PromiseState","ReactionType"],"fn":["new_promise_reaction_job","new_promise_resolve_thenable_job"],"macro":["if_abrupt_reject_promise"],"struct":["Promise","PromiseCapability","ReactionRecord","ResolvingFunctions"]};

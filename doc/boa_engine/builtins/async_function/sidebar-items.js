@@ -1,1 +1,1 @@
-window.SIDEBAR_ITEMS = {"struct":[["AsyncFunction",""]]};
+window.SIDEBAR_ITEMS = {"struct":["AsyncFunction"]};

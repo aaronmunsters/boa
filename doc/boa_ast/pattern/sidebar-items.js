@@ -1,1 +1,1 @@
-window.SIDEBAR_ITEMS = {"enum":[["ArrayPatternElement","The different types of bindings that an array binding pattern may contain."],["ObjectPatternElement","The different types of bindings that an [`ObjectPattern`] may contain."],["Pattern","An object or array pattern binding or assignment."]],"struct":[["ArrayPattern","An array binding or assignment pattern."],["ObjectPattern","An object binding or assignment pattern."]]};
+window.SIDEBAR_ITEMS = {"enum":["ArrayPatternElement","ObjectPatternElement","Pattern"],"struct":["ArrayPattern","ObjectPattern"]};

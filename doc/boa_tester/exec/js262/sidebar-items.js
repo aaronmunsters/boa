@@ -1,1 +1,1 @@
-window.SIDEBAR_ITEMS = {"fn":[["create_realm","The `$262.createRealm()` function."],["detach_array_buffer","The `$262.detachArrayBuffer()` function."],["eval_script","The `$262.evalScript()` function."],["gc","The `$262.gc()` function."],["init","Initializes the object in the context."]]};
+window.SIDEBAR_ITEMS = {"enum":["WorkerResult"],"fn":["agent_obj","create_realm","detach_array_buffer","eval_script","gc","monotonic_now","register_js262","register_js262_worker","sleep"],"struct":["WorkerHandles"],"type":["WorkerHandle"]};

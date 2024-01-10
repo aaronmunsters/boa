@@ -1,1 +1,1 @@
-window.SIDEBAR_ITEMS = {"struct":[["StringIterator",""]]};
+window.SIDEBAR_ITEMS = {"struct":["StringIterator"]};

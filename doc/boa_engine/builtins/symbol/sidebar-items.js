@@ -1,1 +1,1 @@
-window.SIDEBAR_ITEMS = {"constant":[["GLOBAL_SYMBOL_REGISTRY",""]],"struct":[["GlobalSymbolRegistry",""],["Symbol",""]]};
+window.SIDEBAR_ITEMS = {"static":["GLOBAL_SYMBOL_REGISTRY"],"struct":["GlobalSymbolRegistry","Symbol"],"type":["FxDashMap"]};

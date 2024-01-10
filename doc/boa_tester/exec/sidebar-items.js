@@ -1,1 +1,1 @@
-window.SIDEBAR_ITEMS = {"fn":[["test262_print","`print()` function required by the test262 suite."]],"mod":[["js262",""]],"struct":[["AsyncResult","Object which includes the result of the async operation."]]};
+window.SIDEBAR_ITEMS = {"enum":["UninitResult"],"fn":["is_error_type","register_print_fn"],"mod":["js262"],"struct":["AsyncResult"]};

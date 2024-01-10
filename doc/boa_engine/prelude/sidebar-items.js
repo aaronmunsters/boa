@@ -1,1 +1,1 @@
-window.SIDEBAR_ITEMS = {"struct":[["JsObject","Garbage collected `Object`."]]};
+window.SIDEBAR_ITEMS = {"derive":["Finalize","JsData","Trace"],"struct":["HostDefined","Source"],"trait":["Finalize","Trace"]};
